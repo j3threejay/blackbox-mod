@@ -17,7 +17,7 @@ import sys
 os.environ.setdefault("JAVA_HOME", "/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home")
 import pyghidra
 
-pyghidra.start(install_dir="/opt/homebrew/Cellar/ghidra/12.1.4/libexec")
+pyghidra.start(install_dir=os.environ.get("GHIDRA_INSTALL_DIR", "/opt/homebrew/Cellar/ghidra/12.1.4/libexec"))
 
 from ghidra.base.project import GhidraProject
 from ghidra.app.decompiler import DecompInterface
@@ -26,7 +26,7 @@ from ghidra.program.model.scalar import Scalar
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 NAME = os.environ.get("GQ_PROG", "BLACKBOX-3.1.9")
-project = GhidraProject.openProject(ROOT, NAME, False)
+project = GhidraProject.openProject(os.environ.get("GHIDRA_PROJ", ROOT), NAME, False)
 program = project.openProgram("/", NAME, False)
 fm = program.getFunctionManager()
 listing = program.getListing()

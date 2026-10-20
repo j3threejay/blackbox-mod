@@ -138,11 +138,18 @@ development. That one can write anywhere in the machine, so it is not in a relea
 How it works: the stock image is left as it is. New code (`src/`) is compiled and appended after it, and a handful of
 call sites and table entries (`patches/`) are redirected to the new code.
 
-`./check.sh` builds, patches and runs every suite (`test_*.py`) under Unicorn (`pip install unicorn capstone numpy`).
-Several of them hold the firmware's DSP against a build of the same C for the computer (`host/build.sh`, written
-for macOS). They test the new functions, not a full boot. The first power-on of any build is the real test.
+`./check.sh` builds, patches and runs every suite (`test_*.py`) under Unicorn (`pip install unicorn capstone numpy
+scipy`), prints `N suites, M failed`, and exits non-zero when any failed. Several suites hold the firmware's DSP against
+a build of the same C for the computer (`host/build.sh`: clang on a Mac; elsewhere `CC`, else `cc`, e.g. gcc on Linux;
+the library keeps its `.dylib` name, `dlopen` does not mind). On a host CPU without FMA (x86 before Haswell) the
+S950 Lo checks in `test_machine.py` allow 1e-5 (`HOST_TOL`): the M7 fuses its multiply-adds, so the recursion differs
+by a few ulp. They test the new functions, not a full boot. The first power-on of any build is the real test.
 
 `ghidra/`, `disasm.py`, `findbl.py`, `findref.py` are the helpers used to find things in your own copy of the image.
+The Ghidra scripts default to the Homebrew paths and take `GHIDRA_INSTALL_DIR`, `JAVA_HOME` (a full JDK 21: Ghidra's
+launcher refuses a JRE) and `GHIDRA_PROJ` (where the analysed project lives, default `ghidra/`) from the environment.
+`ghidra/export_listing.py` writes every function's instructions (with call and data references) and an index as text,
+for grep; like `out_all.c`, its output is the firmware's code: keep it out of git.
 
 ## What is and isn't in this repository
 

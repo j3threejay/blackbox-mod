@@ -5,6 +5,7 @@ level-matched to the dry file's loudness on the way out, so what you compare is 
 """
 import ctypes
 import os
+import shutil
 import subprocess
 import sys
 import wave
@@ -23,7 +24,7 @@ F = ctypes.POINTER(ctypes.c_float)
 
 def lib():
     os.makedirs(os.path.dirname(LIB), exist_ok=True)
-    subprocess.run(["clang", "-O2", "-shared", "-fPIC", "-o", LIB, os.path.join(HERE, "..", "src", "clip.c")], check=True)
+    subprocess.run([os.environ.get("CC") or shutil.which("clang") or shutil.which("cc") or "cc", "-O2", "-shared", "-fPIC", "-o", LIB, os.path.join(HERE, "..", "src", "clip.c")], check=True)
     d = ctypes.CDLL(LIB)
     d.clip_block.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_float, ctypes.c_float, F, F, ctypes.c_int]
     return d

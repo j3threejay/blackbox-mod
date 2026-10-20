@@ -4,7 +4,7 @@ import sys
 
 import pyghidra
 
-GHIDRA = "/opt/homebrew/Cellar/ghidra/12.1.4/libexec"
+GHIDRA = os.environ.get("GHIDRA_INSTALL_DIR", "/opt/homebrew/Cellar/ghidra/12.1.4/libexec")
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 FW = os.path.join(ROOT, "firmware", sys.argv[1] if len(sys.argv) > 1 else "BLACKBOX-3.1.9.bin")
 BASE = 0x08040000
@@ -30,7 +30,7 @@ from ghidra.util.task import TaskMonitor
 from ghidra.program.flatapi import FlatProgramAPI
 from ghidra.program.model.data import PointerDataType
 
-proj_dir = os.path.join(ROOT, "ghidra")
+proj_dir = os.environ.get("GHIDRA_PROJ", os.path.join(ROOT, "ghidra"))
 name = os.path.splitext(os.path.basename(FW))[0]
 project = GhidraProject.createProject(proj_dir, name, False)
 from ghidra.program.model.lang import LanguageID, CompilerSpecID

@@ -277,6 +277,10 @@ import ctypes
 import numpy as np
 
 host = ctypes.CDLL("host/libdsp.dylib")
+# ARM vs host: the Cortex-M7 fuses multiply-adds (vfma); a host without FMA (x86 before Haswell, or clang
+# with contraction off) rounds twice in the S950 Lo recursion and drifts a few ulp from it. 1e-5 covers
+# that and still catches a wrong coefficient or a missed tap (those miss by 1e-3 and more).
+HOST_TOL = 1e-5
 FP = ctypes.POINTER(ctypes.c_float)
 host.s950_read.argtypes = [ctypes.c_float, FP, ctypes.c_int32, ctypes.c_float, ctypes.c_float, ctypes.c_float, ctypes.c_float,
                            FP, ctypes.c_int, ctypes.c_int, ctypes.POINTER(ctypes.c_int), FP, FP, ctypes.c_int]
@@ -340,7 +344,7 @@ for v, name in ((4, "S950"), (7, "S950 Lo")):
         bad = close(got, stair_model(5000.3, rate, 6 * N, grid, h))
         check(f"{name} at rate {rate}: every frame is the area of the staircase under it, continuous across blocks ({len(bad)} of {len(got)} frames off)",
               len(bad) <= 2, bad[:6])
-        bad = close(got, host_play(5000.3, rate, 6, grid, h), 2e-6)
+        bad = close(got, host_play(5000.3, rate, 6, grid, h), HOST_TOL)
         check(f"{name} at rate {rate}: the ARM build gives what the Mac build gives", not bad, bad[:6])
     got = play(5000.0, 1.0, 4)
     bad = close(got, stair_model(5000.0, 1.0, 4 * N, grid, h))
@@ -350,7 +354,7 @@ for v, name in ((4, "S950"), (7, "S950 Lo")):
         bad = close(got, stair_model(P, 0.6, 6 * N, grid, h))
         check(f"{name} deep into a 60 s sample (position {P:.0f}): the grid still exact ({len(bad)} of {len(got)} frames off)", len(bad) <= 2, bad[:6])
     got = play(60000.0, -0.75, 6)
-    bad = close(got, host_play(60000.0, -0.75, 6, grid, h), 2e-6)
+    bad = close(got, host_play(60000.0, -0.75, 6, grid, h), HOST_TOL)
     check(f"{name} reverse: the ARM build gives what the Mac build gives", not bad, bad[:6])
     fwd = stair_model(60000.0 - 6 * N * 0.75 - 1, 0.75, 6 * N + 4, grid, h)
     best = min(max(abs(a - b) for a, b in zip(got[8:-8], fwd[::-1][k + 8:])) for k in range(0, 6))

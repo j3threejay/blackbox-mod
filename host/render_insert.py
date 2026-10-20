@@ -6,6 +6,7 @@ the engine. Source: the four bars of 4X4DRUMS103 (measure/), mono into both chan
 import ctypes
 import os
 import struct
+import shutil
 import subprocess
 import sys
 import wave
@@ -24,7 +25,7 @@ F = ctypes.POINTER(ctypes.c_float)
 
 def lib():
     os.makedirs(os.path.dirname(LIB), exist_ok=True)
-    subprocess.run(["clang", "-O2", "-shared", "-fPIC", "-o", LIB, os.path.join(HERE, "..", "src", "insert_dsp.c")], check=True)
+    subprocess.run([os.environ.get("CC") or shutil.which("clang") or shutil.which("cc") or "cc", "-O2", "-shared", "-fPIC", "-o", LIB, os.path.join(HERE, "..", "src", "insert_dsp.c")], check=True)
     return ctypes.CDLL(LIB)
 
 

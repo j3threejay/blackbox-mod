@@ -7,6 +7,7 @@ the repeats ONLY, in 128-frame blocks as the engine does.
 import ctypes
 import os
 import struct
+import shutil
 import subprocess
 import sys
 import wave
@@ -26,7 +27,7 @@ BPM, BLOCK = 126.0, 128
 
 def lib():
     os.makedirs(os.path.dirname(LIB), exist_ok=True)
-    subprocess.run(["clang", "-O2", "-shared", "-fPIC", "-o", LIB, os.path.join(HERE, "..", "src", "motion.c")], check=True)
+    subprocess.run([os.environ.get("CC") or shutil.which("clang") or shutil.which("cc") or "cc", "-O2", "-shared", "-fPIC", "-o", LIB, os.path.join(HERE, "..", "src", "motion.c")], check=True)
     d = ctypes.CDLL(LIB)
     d.motion_block.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_float, ctypes.c_float, ctypes.c_float, F, F, ctypes.c_int]
     return d
