@@ -24,3 +24,9 @@ PATCHES = [
     # generic knob-change forward: intercept the private Start/End/Zoom ids
     hook(0x080A6C6C, 0x080AED14, "slice_forward"),
 ]
+
+# Waveform screen corner labels (src/wavelabel.c): its four hooks ride with this set, which already owns the Waveform
+# screen's knobs, so the image keeps the name every suite opens. patches/wavelabel.py holds them.
+from wavelabel import PATCHES as WAVELABEL  # noqa: E402
+
+PATCHES += WAVELABEL

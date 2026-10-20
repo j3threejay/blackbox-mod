@@ -46,6 +46,9 @@ New since 3.1.n:
   its three stereo outputs as six channels of 24-bit 48 kHz audio.
 - **Load readout on TOOLS**: average / peak, for example `62/75%`. Over about 100% peak the engine is out of time
   and you will hear it.
+- **Readable waveform knobs**: on the waveform screen, in every pad mode, the four corner knobs' text is white with
+  a thin black edge instead of stock's grey, so it reads over the waveform's cyan as well as over the background.
+  Same font, size and names.
 - **Fixed**: the naming keyboard's 9 key (3.1.n typed "n").
 
 From 3.1.n and earlier:
@@ -130,7 +133,8 @@ RELEASE=1 ./build.sh
 python3 patch.py solo slice duck chord cond filter cpu od comp seqfix fx2 munchi master fault cave
 ```
 
-That writes `out/<patchsets>/BLACKBOX.bin` and `out/BBEXTRA.BIN`, byte-identical to the release.
+That writes `out/<patchsets>/BLACKBOX.bin` and `out/BBEXTRA.BIN`, byte-identical to the release. `slice` also
+applies `patches/wavelabel.py` (the Waveform screen's corner labels), so the set names stay as they were.
 `python3 make_patch.py <image> "JOEBOX 1" --extra out/BBEXTRA.BIN` turns the pair into the release patch in `docs/`.
 Without `RELEASE=1` you get a test build: a letter for a version, and a raw memory peek / poke over USB for
 development. That one can write anywhere in the machine, so it is not in a release.
