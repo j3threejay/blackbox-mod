@@ -152,9 +152,10 @@ check("fifteen distinct xml names, labels short enough for the screen",
       sorted({l[3] for l in lists} | {n[4] for n in nums}))
 e.stub(0x08093EF6, lambda: added.append((e.arg(1), e.arg(2))))
 e.call("insert_defaults", 0x24073000)
-check("a new pad: Off, the nine shared settings, the Gate's five, and Input Off",
-      added[0] == (0x1B6, 0) and [a[0] for a in added] == list(range(0x1B6, 0x1BF)) + list(range(0x1C2, 0x1C8))
-      and added[-1] == (0x1C7, 0), added)
+check("a new pad: Off, the nine shared settings, the Gate's five, Input Off, then the Clip Window's Region Auto, Slip 0, "
+      "Loop Len Off and Fit Off (clipwin.c)", added[0] == (0x1B6, 0) and [a[0] for a in added] == list(range(0x1B6, 0x1BF))
+      + list(range(0x1C2, 0x1C8)) + [0x1C8, 0x1C9, 0x1CA, 0x1CB] and added[-5] == (0x1C7, 0)
+      and added[-4:] == [(0x1C8, 0), (0x1C9, 0), (0x1CA, 0), (0x1CB, 0)], added)
 check("the Gate comes up the way it was set on pad 10 of the test unit: Thresh 80 %, Attack 0, Hold 0, Release 20 %, Floor 0",
       [a[1] for a in added if 0x1C2 <= a[0] <= 0x1C6] == [800, 0, 0, 200, 0], added[-6:])
 

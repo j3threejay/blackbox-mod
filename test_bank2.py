@@ -62,24 +62,82 @@ else:
 # install. A branch from one into the other is the crash that hit every build from 3.2.m to 3.2.r. The reverb that
 # Confetti and Prism share used to be the one such call (through a jump pinned at 0x080f8b40); it is in bank 2 now.
 md = Cs(CS_ARCH_ARM, CS_MODE_THUMB)
-leaving, outside, off = {}, {}, 16
-while off < len(deployed) - 4:
-    h1, h2 = struct.unpack_from("<HH", deployed, off)
-    if (h1 & 0xF800) == 0xF000 and (h2 & 0xD000) in (0xD000, 0x9000, 0xC000):
-        ins = list(md.disasm(deployed[off:off + 4], B2 + off, 1))
-        if ins and ins[0].mnemonic in ("bl", "blx", "b"):
-            tgt = int(ins[0].op_str.lstrip("#"), 16)
-            if CAVE_LO <= tgt < CAVE_HI:
-                leaving.setdefault(tgt, []).append(B2 + off)
-            elif 0x08000000 <= tgt < 0x08200000 and not B2 <= tgt < B2 + len(deployed):
-                outside.setdefault(tgt, []).append(B2 + off)     # anywhere else in the flash (a constant that happens
-                                                                 # to decode as a branch points nowhere near it)
-            off += 4
-            continue
-    off += 2
+# The scan reads a branch at every halfword, so it also reads one in the middle of an instruction: the tail of an
+# `lsl.w` (f00c) followed by an `sdiv` / `udiv` (fb9x / fbbx) decodes as a bl. Integer division came to bank 2 with
+# clipwin_b2.c. The linker's mapping symbols ($t code, $d data) say where the instructions are: each $t run is swept
+# from its start, and a halfword that is the second half of a 32-bit instruction there is not a branch. Nothing else is
+# set aside - data, and code the sweep could not decode, are still read at every halfword.
+mapsyms = sorted((int(p[0], 16), p[-1]) for p in (l.split() for l in subprocess.run(
+    ["arm-none-eabi-nm", "-n", "--special-syms", "out/cave.elf"], capture_output=True, text=True, check=True).stdout.splitlines())
+    if len(p) >= 3 and p[-1] in ("$t", "$d") and B2 <= int(p[0], 16) < B2 + len(deployed))
+mid, swept, code_bytes = set(), 0, 0
+for i, (a, kind) in enumerate(mapsyms):
+    if kind != "$t":
+        continue
+    end = mapsyms[i + 1][0] if i + 1 < len(mapsyms) else B2 + len(deployed)
+    code_bytes += end - a
+    for ins in md.disasm(deployed[a - B2:end - B2], a):
+        swept += ins.size
+        if ins.size == 4:
+            mid.add(ins.address + 2)
+check(f"the mapping symbols mark bank 2's code, and the sweep decodes all of it ({swept} of {code_bytes} bytes)",
+      mapsyms and swept == code_bytes, (len(mapsyms), swept, code_bytes))
+
+
+def scan(payload):
+    """every branch in the payload that lands in the cave, and every one that leaves bank 2 for anywhere else"""
+    leaving, outside, off = {}, {}, 16
+    while off < len(payload) - 4:
+        h1, h2 = struct.unpack_from("<HH", payload, off)
+        if (h1 & 0xF800) == 0xF000 and (h2 & 0xD000) in (0xD000, 0x9000, 0xC000) and B2 + off not in mid:
+            ins = list(md.disasm(payload[off:off + 4], B2 + off, 1))
+            if ins and ins[0].mnemonic in ("bl", "blx", "b"):
+                tgt = int(ins[0].op_str.lstrip("#"), 16)
+                if CAVE_LO <= tgt < CAVE_HI:
+                    leaving.setdefault(tgt, []).append(B2 + off)
+                elif 0x08000000 <= tgt < 0x08200000 and not B2 <= tgt < B2 + len(payload):
+                    outside.setdefault(tgt, []).append(B2 + off)     # anywhere else in the flash (a constant that
+                                                                     # happens to decode as a branch points nowhere near it)
+                off += 4
+                continue
+        off += 2
+    return leaving, outside
+
+
+leaving, outside = scan(deployed)
 check("no branch in bank 2 lands in the cave", not leaving, {hex(t): [hex(x) for x in sites] for t, sites in leaving.items()})
 check("...and none leaves bank 2 at all: it is leaf DSP, calling only itself", not outside,
       {hex(t): [hex(x) for x in sites] for t, sites in outside.items()})
+# ...and the scan still sees a real one: a bl into the cave planted on an instruction of each of clipwin_b2.c's cw_*
+# functions (the Clip Window's maths, all of it in bank 2; its divisions are what the mapping symbols are read for), at
+# each one's first instruction and at its first sdiv / udiv if it has one
+def bl_bytes(at, tgt):
+    o = (tgt - (at + 4)) >> 1
+    s_, j1, j2 = (o >> 23) & 1, ((o >> 22) & 1) ^ 1 ^ ((o >> 23) & 1), ((o >> 21) & 1) ^ 1 ^ ((o >> 23) & 1)
+    return struct.pack("<HH", 0xF000 | (s_ << 10) | ((o >> 11) & 0x3FF), 0xD000 | (j1 << 13) | (j2 << 11) | (o & 0x7FF))
+
+
+sizes = {l.split()[3]: int(l.split()[1], 16) for l in subprocess.run(["arm-none-eabi-nm", "-S", "out/cave.elf"], capture_output=True,
+                                                                    text=True, check=True).stdout.splitlines() if len(l.split()) == 4}
+cw_funcs = sorted(n for n, a in funcs_all.items() if n.startswith("cw_") and B2 <= a < B2 + len(deployed))
+check(f"the Clip Window's maths is bank 2's: {len(cw_funcs)} cw_* functions there, none left in the cave",
+      len(cw_funcs) >= 10 and {"cw_latch", "cw_slot", "cw_map", "cw_turn"} <= set(cw_funcs)
+      and not [n for n, a in funcs_all.items() if n.startswith("cw_") and CAVE_LO <= a < CAVE_HI], cw_funcs)
+divs = set()
+for fn in cw_funcs:
+    cw = funcs_all[fn]
+    div = next((i.address for i in md.disasm(deployed[cw - B2:cw - B2 + sizes.get(fn, 4)], cw) if i.mnemonic in ("sdiv", "udiv")), None)
+    if div:
+        divs.add(fn)
+    caught = []
+    for at in (cw, div) if div else (cw,):
+        planted = bytearray(deployed)
+        planted[at - B2:at - B2 + 4] = bl_bytes(at, CAVE_LO + 0x100)
+        caught.append(scan(bytes(planted))[0] == {CAVE_LO + 0x100: [at]})
+    check(f"a bl into the cave planted at {fn}'s first instruction" + (f" and at its first division ({hex(div)})" if div else "")
+          + " is still found", all(caught), (hex(cw), div and hex(div), caught))
+check(f"...{len(divs)} of them planted on a division, cw_latch and cw_turn among them ({', '.join(sorted(divs))})",
+      {"cw_latch", "cw_turn"} <= divs, sorted(divs))
 check("the reverb is in bank 2 beside its two callers", B2 <= funcs_all.get("rev4_step", 0) < B2 + len(deployed), hex(funcs_all.get("rev4_step", 0)))
 check("the old pinned jump is gone from the cave", "rev4_step_impl" not in funcs_all and funcs.get(OLD_PIN) != "rev4_step", funcs.get(OLD_PIN))
 lits = [struct.unpack_from("<I", deployed, o)[0] for o in range(16, len(deployed) - 3, 4)]
@@ -180,7 +238,6 @@ for _ in range(5):
 check(f"bank 2 off + Confetti selected: the lines are cleared ONCE, then left alone {[c for c, _ in per_block]}",
       [c for c, _ in per_block] == [3, 0, 0, 0, 0], per_block)
 check("...and the stock delay runs every block in its place", all(st == 1 for _, st in per_block), per_block)
-
 # --- 5. THE FLASH HAS TO READ CLEANLY TOO (3.2.t). The payload on the test unit was byte-perfect and still misread one
 # word read in 700: the chip corrects a single flipped bit silently and bus-faults on two. b2_paired now clears the
 # ECC flags, reads every flash word of the payload sixteen times past the data cache, and refuses bank 2 if a flag

@@ -21,6 +21,29 @@ again and put both files on the card the same way.
 
 New since 3.1.n:
 
+- **Slip on Clip pads**: a "Slip" row on a Clip pad's Pos tab, after Sync. It moves what the clip plays against the
+  clock, up to a bar either way, so a loop cut by ear sits where the groove wants it. Like a CDJ jog: clockwise pushes
+  the loop ahead, counter-clockwise drags it behind. The value is beats.ticks, 960 ticks to a beat (`-0.480` is half a
+  beat behind; one tick is about half a millisecond at 120 BPM). Turn slowly for single ticks, fast for 1/64 steps; a
+  turn stops on 0, pause to go past it. A change is heard at the next Sync step. Saved with the preset; 0 is stock.
+- **Region on Clip pads**: a "Region" row before Slip: Auto, File or Loop. The pad plays its loop points (Sample
+  mode's Loop Start and Loop End) in sync, as if they were the whole file: no destructive Trim. Auto plays them
+  whenever they are not the whole file; File is stock. A change is heard from the pad's next pass.
+- **The Waveform screen on a Clip pad**: the top knobs are Loop Start and Loop End, the bottom ones Slip and Loop Len;
+  the loop bracket shows what Region plays, and the playhead line the frame you hear. Turning Loop Start or Loop End
+  takes the view to that edge, and it follows the playhead again after a pause.
+- **Loop Len on Clip pads**: a "Loop Len" row after Slip: Off, 1/16 ... 4 bars. A beat repeat on the grid: the window
+  where the music is loops until you turn it Off, and the clip carries on in phase. It needs Quant and Sync; a window
+  shorter than a Sync step sets the pad's Sync for as long as it needs to.
+- **Fit on Clip pads**: a "Fit" row after Loop Len: Off, Auto (Bars), Auto (Beats), 1/4 ... 8 bars. The loop the pad
+  plays lasts exactly that many beats at the tempo: a little faster or slower, the pitch with it (not a time-stretch),
+  so a loop cut by ear no longer stutters at every Sync step. Auto (Bars) picks the nearest whole number of bars
+  (under a bar: 1/4, 1/2 or 1 bar), so the loop stays on the metronome's bar; Auto (Beats) the nearest whole number of
+  beats, and a length that is no whole bar (3, 5, 14 beats...) plays as a polyrhythm, each pass in time. It follows
+  tempo changes.
+- **Loop Fade on a Clip pad's Region**: Sample mode's Loop Fade row is on the Clip Pos tab too, after Fit. The loop's
+  end crossfades into the frames before Loop Start, as in Sample mode, so a loop whose ends don't meet doesn't click
+  every time it comes round.
 - **Live input on a pad**: an "Input" row on a pad's Conf tab (Off, In 1, In 2, In 1+2). The audio input plays
   through that pad, so it gets the pad's insert, its reverb and delay sends, its level and pan, and the master FX.
   Muting the pad mutes it.
@@ -74,6 +97,9 @@ From 3.1.n and earlier:
 - LFO 2 / 3, ENV, the insert and Input are not on Granular pads.
 - A note placed very close ahead of the playhead is still sometimes silent.
 - Chords need the pad out of Mono Poly Mode.
+- Slip, Region, Loop Len, Fit and Loop Fade do nothing on Slicer pads, or on a Clip pad set to Sync Slice with slice
+  markers.
+- Loop Fade does nothing while Loop Len is on, in the machine Fidelity modes, or on a region under 2 048 frames.
 - Presets saved on an older mod build can come back with a neighbouring Fidelity or delay Type, because those
   lists gained entries. Set them again and save.
 - USB on the power jack doesn't work on every unit. On some, that jack's USB data side is dead with any firmware,

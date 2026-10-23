@@ -176,8 +176,8 @@ check("the meter is up before the boot hook runs here (the emulator starts that 
 e.call("master_alloc", 0x24076000, 192000)
 check("master_alloc is the once-a-boot hook: it wipes the meter's state, and the bank 2 verdict with it (cpu_boot)", e.r32(0x2405FFD0) == 0)
 e.meter_up()                                      # ...and the audio task's first wake sets it up again, before any block
-check("master_alloc: the delay's line is allocated as before, then 0x83800 bytes (Prism's 0x56800 + 0x1000 for the LFOs + 0x6000 for the USB audio ring + 0x4000 for the S950 filters + 0x22000 for the pad inserts + 0x100 for the clipper), pointer + check word stored",
-      allocs == [("line", 0x24076000, 192000), ("perm", 0x83900)] and e.r32(PMEM) & 0xFFFFFFFF == PRISM and e.r32(PCHECK) & 0xFFFFFFFF == PRISM ^ 0x5052534D, (allocs, hex(e.r32(PMEM)), hex(e.r32(PCHECK))))
+check("master_alloc: the delay's line is allocated as before, then 0x84900 bytes (Prism's 0x56800 + 0x1000 for the LFOs + 0x6000 for the USB audio ring + 0x4000 for the S950 filters + 0x22000 for the pad inserts + 0x100 for the clipper + 0x1000 for the Clip Window), pointer + check word stored",
+      allocs == [("line", 0x24076000, 192000), ("perm", 0x84900)] and e.r32(PMEM) & 0xFFFFFFFF == PRISM and e.r32(PCHECK) & 0xFFFFFFFF == PRISM ^ 0x5052534D, (allocs, hex(e.r32(PMEM)), hex(e.r32(PCHECK))))
 check("the patched call in the delay constructor goes to master_alloc", e.uc.mem_read(0x0805462A, 4) != bytes.fromhex("16f029fa") and e.sym["master_alloc"] != 0)
 e.w32(PCHECK, 0x12345678)
 l, r = block(x)

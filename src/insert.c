@@ -101,6 +101,8 @@ void insert_register(void *table)
         fw_register_num(table, P_INS_GATE + i, TYPE_PCT, g_label[i], 0, 1000, g_xml[i]);
 }
 
+void clipwin_defaults(void *store);   /* clipwin.c: Slip rides this chain */
+
 void insert_defaults(void *store)
 {
     /* Off; Pebble; Electra; a slow sweep, most of the way deep, centred, a little feedback, some width, the classic sum */
@@ -114,6 +116,7 @@ void insert_defaults(void *store)
     for (int i = 0; i < 5; i++)
         fw_store_add(store, P_INS_GATE + i, gate_first[i]);
     fw_store_add(store, P_INS_IN, IN_OFF);
+    clipwin_defaults(store);                         /* clipwin.c: Slip, on the same chain */
 }
 
 /* ---- the engine ---- */

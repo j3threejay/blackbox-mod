@@ -41,6 +41,8 @@ def fstr(x):
 
 def machine(image):
     m = Emu(image, "out/cave.elf")
+    m.uc.mem_map(0x38800000, 0x1000)             # backup SRAM + RCC: clipwin_read asks master.c for its SDRAM block first
+    m.uc.mem_map(0x58024000, 0x1000)
     m.fetches = []
 
     def fetch():

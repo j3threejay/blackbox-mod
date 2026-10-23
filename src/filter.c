@@ -614,42 +614,65 @@ typedef float *(*buf_mono_fn)(void *buf);
 #define CLIP_SOURCE 0x24         /* pad -> its sample */
 #define CLIP_BACK   3            /* the fetch starts this many samples before the position */
 
-/* filter = the reading voice's filter object, put in the register stock leaves unused (clip_read_b, filter_thunk.S) */
-int clip_read(float rate, uint8_t *pad, uint8_t *filter, int32_t pos, int32_t pos_hi, int n, int *used, float *frac,
-              void *scratch, void *out, void **result)
+/* count frames from start into l (and r): vlen 0 = the file as stock reads it (silence before frame 0); vlen > 0 =
+   the region [rs, rs + vlen) taken as circular (clipwin.c's Slip), round its end as often as it takes */
+void clip_fetch(void *src, int stereo, float *l, float *r, int count, int32_t start, int32_t rs, int32_t vlen)
 {
-    const struct machine *m = pad_machine(pad);
-    if (!m || !(rate > 0.0f))
-        return fw_clip_read(rate, pad, filter, pos, pos_hi, n, used, frac, scratch, out, result);
+    if (vlen <= 0) {
+        int lead = start < 0 ? -start : 0;                  /* before the sample's first frame: silence */
+        if (lead > count)
+            lead = count;
+        for (int i = 0; i < lead; i++) {
+            l[i] = 0.0f;
+            if (stereo)
+                r[i] = 0.0f;
+        }
+        if (count > lead) {
+            if (stereo)
+                fw_fetch2(src, l + lead, r + lead, count - lead, start + lead);
+            else
+                fw_fetch(src, l + lead, count - lead, start + lead, 0);
+        }
+        return;
+    }
+    int32_t at = (start - rs) % vlen;
+    start = rs + (at < 0 ? at + vlen : at);
+    while (count > 0) {
+        int32_t room = rs + vlen - start;
+        int m = count < room ? count : (int)room;
+        if (stereo) {
+            fw_fetch2(src, l, r, m, start);
+            r += m;
+        } else {
+            fw_fetch(src, l, m, start, 0);
+        }
+        l += m;
+        count -= m;
+        start = rs;
+    }
+}
+
+static int clip_read_at(const struct machine *m, float rate, uint8_t *pad, uint8_t *filter, int32_t pos, int n,
+                        int *used, float *frac, void *scratch, void *out, void **result, int32_t rs, int32_t vlen)
+{
     void *src = *(void **)(pad + CLIP_SOURCE);
-    if (fw_src_len(src) + 0xff < pos)
-        return 0;
     ((struct ostate *)(filter + 0x60))->rate = rate;
     int n_src = (int)((float)n * rate) + 8, cap = fw_buf_frames(scratch);
     if (n_src > cap)
         n_src = cap;
     int32_t start = pos - CLIP_BACK;
-    int lead = start < 0 ? -start : 0;                      /* before the sample's first frame: silence */
-    if (lead > n_src)
-        lead = n_src;
     PARK->pad = pad;
     PARK->pos = start + 4;                                  /* machine_read: scratch[0] = source[PARK->pos - 4] */
     PARK->rate = rate;
     int idx = 4;
     if (!fw_src_stereo(src)) {
         float *s = fw_buf_mono(scratch);
-        for (int i = 0; i < lead; i++)
-            s[i] = 0.0f;
-        if (n_src > lead)
-            fw_fetch(src, s + lead, n_src - lead, start + lead, 0);
+        clip_fetch(src, 0, s, 0, n_src, start, rs, vlen);
         machine_read(m, rate, s, n_src, 4, &idx, frac, fw_buf_mono(out), n);
     } else {
         float *sl = 0, *sr = 0, *ol = 0, *orr = 0;
         fw_buf_pair(scratch, &sl, &sr);
-        for (int i = 0; i < lead; i++)
-            sl[i] = sr[i] = 0.0f;
-        if (n_src > lead)
-            fw_fetch2(src, sl + lead, sr + lead, n_src - lead, start + lead);
+        clip_fetch(src, 1, sl, sr, n_src, start, rs, vlen);
         fw_buf_pair(out, &ol, &orr);
         float f = *frac;
         machine_read(m, rate, sl, n_src, 4, &idx, &f, ol, n);
@@ -658,4 +681,27 @@ int clip_read(float rate, uint8_t *pad, uint8_t *filter, int32_t pos, int32_t po
     *used = idx - 4;
     *result = out;
     return 1;
+}
+
+/* filter = the reading voice's filter object, put in the register stock leaves unused (clip_read_b, filter_thunk.S) */
+int clip_read(float rate, uint8_t *pad, uint8_t *filter, int32_t pos, int32_t pos_hi, int n, int *used, float *frac,
+              void *scratch, void *out, void **result)
+{
+    const struct machine *m = pad_machine(pad);
+    if (!m || !(rate > 0.0f))
+        return fw_clip_read(rate, pad, filter, pos, pos_hi, n, used, frac, scratch, out, result);
+    if (fw_src_len(*(void **)(pad + CLIP_SOURCE)) + 0xff < pos)
+        return 0;
+    return clip_read_at(m, rate, pad, filter, pos, n, used, frac, scratch, out, result, 0, 0);
+}
+
+/* clipwin.c: a machine-mode read at real over the circular region [rs, rs + vlen), seam or not; -1 = the pad reads
+   through stock's reader (no machine mode), the caller's job */
+int clip_read_ring(float rate, uint8_t *pad, uint8_t *filter, int32_t real, int32_t rs, int32_t vlen, int n, int *used,
+                   float *frac, void *scratch, void *out, void **result)
+{
+    const struct machine *m = pad_machine(pad);
+    if (!m || !(rate > 0.0f))
+        return -1;
+    return clip_read_at(m, rate, pad, filter, real, n, used, frac, scratch, out, result, rs, vlen);
 }

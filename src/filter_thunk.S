@@ -34,7 +34,7 @@ filter_voice_b:
     .type clip_read_b, %function
 clip_read_b:
     add.w   r1, fp, #0x14c
-    b.w     clip_read
+    b.w     clipwin_read            @ clipwin.c: Slip's mapping, then filter.c's clip_read
 
 /*
  * The four calls to the sample-voice reader (FUN_08056fd0 -> FUN_08055f0c). At each of them r4 is the voice and s1 its

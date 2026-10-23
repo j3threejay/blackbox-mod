@@ -117,7 +117,8 @@ int b2_live(void);               /* cpu.c: is bank 2, where prism_block lives, t
 #define PRISM_MEM   (*(volatile uint32_t *)0x38800f70u)
 #define PRISM_CHECK (*(volatile uint32_t *)0x38800f74u)
 #define PRISM_KEY   0x5052534du
-#define EXTRA_BYTES 0x2d100u      /* behind Prism's: lfo.c's state (0x1000), usbdev.c's audio ring (0x6000), filter.c's S950 bank (0x4000), insert.c's bank (0x22000), comp.c's clipper (0x100) */
+#define EXTRA_BYTES 0x2e100u      /* behind Prism's: lfo.c's state (0x1000), usbdev.c's audio ring (0x6000), filter.c's S950 bank (0x4000), insert.c's bank (0x22000), comp.c's clipper (0x100), clipwin.c's bank (0x1000 since Fit) */
+_Static_assert(0x2d100u + 0x1000u <= EXTRA_BYTES, "clipwin.c's bank (0x1000 at PRISM_BYTES + 0x2d100) fits the block");
 
 /* which master page the knob screen shows, and whether it is showing one (backup SRAM, next to munchi's words) */
 struct master_ui {
@@ -142,6 +143,7 @@ enum { PAGE_COMP, PAGE_MFX, PAGE_MFX2, PAGE_INS };
 #define PADVIEW_PAGE   0xf6cc    /* 0, 2, 3 = knob pages, 1 and 4 = lists */
 #define PADVIEW_ROWS   0xd50     /* its list widget */
 void insert_register(void *table);
+void clipwin_register(void *table);
 
 #define P_SMASH_DEPTH 0x1ea
 #define P_SMASH_TIME  0x1eb
@@ -179,6 +181,7 @@ void master_register(void *table)
     fw_register_num(table, P_PR_MIX, TYPE_PCT, "Mix:", 0, 1000, "prismmix");
     lfo_register(table);
     insert_register(table);
+    clipwin_register(table);
 }
 
 void master_defaults(void *store)
@@ -516,6 +519,7 @@ void master_alloc(int *line, int floats)
         *(volatile uint32_t *)(mem + PRISM_BYTES + 0x7000u) = 0;
         *(volatile uint32_t *)(mem + PRISM_BYTES + 0xb000u) = 0;    /* insert.c's bank */
         *(volatile uint32_t *)(mem + PRISM_BYTES + 0x2d000u) = 0;   /* comp.c's clipper */
+        *(volatile uint32_t *)(mem + PRISM_BYTES + 0x2d100u) = 0;   /* clipwin.c's bank */
     }
 }
 
