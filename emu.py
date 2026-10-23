@@ -2,6 +2,7 @@
 import os
 import struct
 import subprocess
+import zlib
 
 from unicorn import UC_ARCH_ARM, UC_HOOK_CODE, UC_MODE_THUMB, Uc
 from unicorn import arm_const
@@ -14,10 +15,13 @@ BASE = 0x08040000
 # a record of it here, so that an image is always tested against what it will really meet. Where there is no such
 # record (the public repository has none) it is the payload this build has just linked, which is what a card
 # install puts there.
-DEPLOYED_BANK2 = "card-backup/BANK2-3.3.c-payload.bin"
+DEPLOYED_BANK2 = "card-backup/BANK2-3.3.z-payload.bin"   # on the test unit since 3.3.z (10-21)
 if not os.path.exists(DEPLOYED_BANK2):
     DEPLOYED_BANK2 = "out/bank2.bin"
 STACK, RET = 0x2407F000, 0x0807FFF0
+TRACE = open(os.environ["EMU_TRACE"], "a") if os.environ.get("EMU_TRACE") else None
+TRACE_SKIP = {0xE0000000, 0x52002000, 0x58024000, 0x50003000}   # SCB / DWT, FLASH, RCC / PWR, WWDG registers
+TRACE_MASK = ((STACK - 0x4000, STACK), (0x2405FFD0, 0x2405FFF4), (0x38800FE8, 0x38800FF0))
 ARGS = (UC_ARM_REG_R0, UC_ARM_REG_R1, UC_ARM_REG_R2, UC_ARM_REG_R3)
 
 
@@ -124,7 +128,28 @@ class Emu:
         self.calls.clear()
         self.uc.emu_start(addr | 1, RET, count=count)
         assert self.uc.reg_read(UC_ARM_REG_PC) == RET, f"did not return from {target}"
+        if TRACE:
+            self._trace(target, args)
         return list(self.calls)
+
+    def _trace(self, target, args):
+        """EMU_TRACE=file: after every call, one line with what was called and CRCs of the RAM it can see, per 64 KB.
+        Two builds that should behave the same (3.3.y's bank reorganisation) are run through the same suite and the
+        files compared: measure/trace_diff.py. Left out, as noise between two builds that do the same work: flash, the
+        core's and the chip's registers, the stack below the caller's sp, the load meter's state (it holds the bank 2
+        verdict, which a build asks for at different moments) and the delay's stack watermark (fault.c's SP_LOW)."""
+        crcs = []
+        for begin, end, _ in sorted(self.uc.mem_regions()):
+            if begin >> 24 == 0x08 or begin in TRACE_SKIP:
+                continue
+            data = bytearray(self.uc.mem_read(begin, end - begin + 1))
+            for lo, hi in TRACE_MASK:
+                if begin <= lo and hi <= end + 1:
+                    data[lo - begin:hi - begin] = bytes(hi - lo)
+            for off in range(0, len(data), 0x10000):
+                crcs.append(f"{begin + off:08x}:{zlib.crc32(data[off:off + 0x10000]):08x}")
+        name = target if isinstance(target, str) else f"{target:08x}"
+        TRACE.write(f"{name} {' '.join(f'{a & 0xFFFFFFFF:x}' for a in args)} | {' '.join(crcs)}\n")
 
     def r8(self, a):
         return self.uc.mem_read(a, 1)[0]

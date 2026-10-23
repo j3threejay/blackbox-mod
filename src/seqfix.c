@@ -25,7 +25,8 @@ typedef void (*player_fn)(uint8_t *seq, const void *clock, int32_t a, int32_t b,
 
 #define fw_list_set ((list_set_fn)FN(0x08063b38))
 #define fw_list_del ((list_del_fn)FN(0x08063c08))
-#define fw_clock    ((clock_fn)FN(0x08069c94))           /* clock position -> sequencer time */
+int64_t *groove_s2t(int64_t *out, uint8_t *clock, uint32_t lo, int32_t hi);   /* groove.c */
+#define fw_clock(out, clk, lo, hi) groove_s2t((out), (uint8_t *)(clk), (lo), (hi))   /* clock position -> sequencer time, through the Groove (3.3.q) */
 #define fw_player   ((player_fn)FN(0x0805d1d8))          /* plays the notes due in this block */
 
 #define SEQ_PATTERNS  0x320      /* pattern states, 0x48 bytes each */

@@ -1,4 +1,4 @@
-"""Type switching in the delay slot, with the REAL stock line clear (FUN_0806AAC0) running.
+"""Type switching in the delay slot: the lines cleared over several blocks (3.3.y), with lines of the real sizes.
 
 Every other suite STUBS that call, which is the blind spot that let the Relapse hang through: a stub returns in one
 instruction, so no test could ever see what clearing three multi-megabyte lines costs, or that a clear repeats. Here
@@ -114,57 +114,103 @@ TYPES = {0: "Delay", 1: "Munchi", 2: "Motion", 3: "Relapse", 4: "Confetti"}
 store(fb=500, size=5, recall=400, reach=500, twist=0, tone=300, feed=0, wand=250, random=300, freeze=0, clock=0,
       width=0, duck=0, mokind=1, morate=400, modepth=600, cfmode=0, cfdensity=500, cfcontour=500, cfspace=300)
 
-# --- 1. the real clear costs this much, and it lands in ONE audio block
-e.w32(0x38800B14, 0)                                   # MODE: unknown epoch, so the first block always clears
+# Since 3.3.y the slot clears the lines itself, CLR_WORDS a block, and stock's one-shot clear is never called: the
+# 4.5 ms of clearing in one 2.67 ms block was the delay Type spike in the profiler reading (10-20).
+MODE = 0x38800B14
+CLR_EPOCH, CLR_DONE = 0x4D43, 0xFF
+
+
+def clearing():
+    v = e.r32(MODE) & 0xFFFFFFFF
+    return v >> 16 == CLR_EPOCH
+
+
+def settle(limit=40):
+    """Blocks until the clear is over and the type has started: (blocks, worst block's instructions, stock clears)."""
+    n, worst, stock = 0, 0, 0
+    while n < limit:
+        c = block(measure=True)
+        stock += len([x for x in calls if x[0] == "clear"])
+        n += 1
+        worst = max(worst, c)
+        if not clearing():
+            break
+    return n, worst, stock
+
+
+# --- 1. the clear is spread over blocks, each one well inside the block
+e.w32(MODE, 0)                                         # MODE: unknown epoch
 store(type=1)
-block()                                                # settle on Munchi
+settle()                                               # settle on Munchi
 store(type=3)
-switch = block(measure=True)
-cleared = [c for c in calls if c[0] == "clear"]
-check(f"Munchi -> Relapse clears all three lines ({len(cleared)})", len(cleared) == 3, calls[:5])
-print(f"     the switching block: {switch:,} instructions = {ms(switch):.2f} ms of work in a {BLOCK_MS:.2f} ms block"
-      f" ({ms(switch) / BLOCK_MS:.1f}x)")
+n, worst, stock = settle()
+check(f"Munchi -> Relapse: the lines are cleared over {n - 1} blocks, then Relapse starts", 10 <= n - 1 <= 20 and not clearing(),
+      (n, hex(e.r32(MODE) & 0xFFFFFFFF)))
+print(f"     worst clearing block: {worst:,} instructions = {ms(worst):.2f} ms of work in a {BLOCK_MS:.2f} ms block")
+check("no clearing block is more than a fifth of a block's work", ms(worst) < BLOCK_MS / 5, f"{ms(worst):.2f} ms")
+check("stock's one-shot clear is never called", stock == 0, stock)
 steady = block(measure=True)
 check(f"the next block does not clear again ({ms(steady):.2f} ms, {steady:,} instructions)",
-      not [c for c in calls if c[0] == "clear"], calls[:5])
-check("a type switch is not a hang: the clear happens once, and the block after it is back to normal",
-      ms(steady) < BLOCK_MS and steady * 8 < switch, (steady, switch))
+      not clearing() and not [c for c in calls if c[0] == "clear"], calls[:5])
 
 # --- 2. every transition: does any pair clear more than once, or clear on every block?
-print("\n     from -> to          clears   switch block      next block")
-worst = (0, "")
+print("\n     from -> to          blocks   worst block      next block")
+worst_all = (0, "")
 for frm in TYPES:
     for to in TYPES:
         if frm == to:
             continue
-        e.w32(0x38800B14, 0)
+        e.w32(MODE, 0)
         store(type=frm)
-        block()
+        settle()
         block()
         store(type=to)
-        a = block(measure=True)
-        na = len([c for c in calls if c[0] == "clear"])
+        n, a, stock = settle()
         b = block(measure=True)
-        nb = len([c for c in calls if c[0] == "clear"])
-        print(f"     {TYPES[frm]:9}-> {TYPES[to]:9} {na:4}      {ms(a):6.2f} ms       {ms(b):6.2f} ms"
-              + ("   <-- CLEARS AGAIN" if nb else ""))
-        check(f"{TYPES[frm]} -> {TYPES[to]}: clears once, then settles", nb == 0 and ms(b) < BLOCK_MS, f"{nb} clears, {ms(b):.2f} ms")
-        if ms(a) > worst[0]:
-            worst = (ms(a), f"{TYPES[frm]} -> {TYPES[to]}")
+        again = clearing() or [c for c in calls if c[0] == "clear"]
+        print(f"     {TYPES[frm]:9}-> {TYPES[to]:9} {n:4}      {ms(a):6.2f} ms       {ms(b):6.2f} ms"
+              + ("   <-- CLEARS AGAIN" if again else ""))
+        check(f"{TYPES[frm]} -> {TYPES[to]}: clears once, then settles", not again and stock == 0 and ms(a) < BLOCK_MS / 5
+              and ms(b) < BLOCK_MS, f"{n} blocks, {ms(a):.2f} / {ms(b):.2f} ms, {stock} stock clears")
+        if ms(a) > worst_all[0]:
+            worst_all = (ms(a), f"{TYPES[frm]} -> {TYPES[to]}")
 
-print(f"\n     worst switch: {worst[1]} at {worst[0]:.2f} ms ({worst[0] / BLOCK_MS:.1f} blocks' worth of work in one block)")
+print(f"\n     worst block of any switch: {worst_all[1]} at {worst_all[0]:.2f} ms")
 
-# --- 3. the clear really does hand the lines over empty: no type reads the last one's state
-e.w32(0x38800B14, 0)
+# --- 3. the clear really does hand the lines over empty, all of every line, and resets their positions
+e.w32(MODE, 0)
 store(type=1)
+settle()
 block()
-e.uc.mem_write(LIVE, b"\xAA" * 4096)                   # Munchi's leftovers
-e.uc.mem_write(STATE, b"\xAA" * 4096)
-e.uc.mem_write(FRZ, b"\xAA" * 4096)
+for off, ptr, floats in LINES:
+    e.uc.mem_write(ptr, b"\xAA" * (floats * 4))        # Munchi's leftovers, the whole line
+    e.uc.mem_write(OBJ + off + 4, struct.pack("<III", 0x1111, 0x2222, 0x3333))
+    e.w32(OBJ + off + 0x10, 0x4444)
 store(type=3)
-block()
-left = (bytes(e.uc.mem_read(LIVE, 4096)).count(0xAA) + bytes(e.uc.mem_read(FRZ, 4096)).count(0xAA))
-check("the lines are handed over zeroed, so Relapse never reads Munchi's state", left == 0, f"{left} bytes left")
+settle()
+left = sum(bytes(e.uc.mem_read(ptr, floats * 4)).count(0xAA) for off, ptr, floats in LINES)
+check("the lines are handed over zeroed, every word of all three, so Relapse never reads Munchi's state", left == 0,
+      f"{left} bytes left")
+pos = [struct.unpack("<III", e.uc.mem_read(OBJ + off + 4, 12)) for off, ptr, floats in LINES]
+check("...and their positions reset as stock's clear does (+4 = +0x10, +8 = +0xc = 0)", all(p == (0x4444, 0, 0) for p in pos), pos)
+outside = bytes(e.uc.mem_read(STATE + 96256 * 4, 64)).count(0) + bytes(e.uc.mem_read(FRZ + 192256 * 4, 64)).count(0)
+
+# --- 4. a change in the middle of a clear carries on with it; a clear cut off by a reset finishes on the next boot
+e.w32(MODE, 0)
+store(type=1)
+settle()
+store(type=3)
+for _ in range(5):
+    block()
+store(type=4)
+n, worst, stock = settle()
+check(f"Munchi -> Relapse -> Confetti mid-clear: the clear goes on ({n} more blocks) and Confetti starts",
+      not clearing() and e.r32(MODE) & 0xFF == 4 and n < 15, (n, hex(e.r32(MODE) & 0xFFFFFFFF)))
+e.w32(MODE, CLR_EPOCH << 16 | 7 << 8 | 3)              # what a reset half way through a clear to Relapse leaves
+store(type=3)
+n, worst, stock = settle()
+check(f"a clear left half done by a reset finishes ({n} blocks), then the type starts", not clearing() and 7 <= n <= 10,
+      (n, hex(e.r32(MODE) & 0xFFFFFFFF)))
 
 print(f"\n{fails} failure(s)")
 sys.exit(1 if fails else 0)

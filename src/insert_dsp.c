@@ -38,6 +38,7 @@
  * It keeps NO delay line, so unlike the Phaser and Flanger it costs no SDRAM traffic (see NOTES.md, the dropouts
  * of 2026-10-09).
  */
+#pragma GCC optimize("O2", "no-tree-loop-distribute-patterns")   /* bank 2: room to spare, so built for speed (3.3.l) */
 #include "insert.h"
 
 #define FS   48000.0f
@@ -281,6 +282,11 @@ void ins_render(struct ins_state *s, const struct ins_set *p, float *l, float *r
 {
     if (n <= 0 || p->type == INS_OFF || p->type >= INS_TYPES)
         return;
+    if (p->type == INS_TRANS) {                              /* transient.c: its own state, no delay line */
+        ts_block(&s->ts, &p->ts, l, r, n);
+        s->primed = 1;
+        return;
+    }
     if (p->type == INS_GATE) {                               /* no oscillator, no delay line, no smoothed knobs */
         float *gch[2] = {l, r};
         gate(s, p, gch, n);

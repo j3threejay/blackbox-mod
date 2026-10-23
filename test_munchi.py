@@ -109,6 +109,33 @@ def check(label, cond, detail=""):
     fails += not cond
 
 
+# 3.3.y: a Type change clears the slot's three lines over several silent blocks (MODE = "MC" | chunks << 8 | type),
+# and the type starts, fresh, in the block after the last chunk. Stock's one-shot clear (stubbed above) is not called.
+MODE = 0x38800B14
+
+
+def clearing(done_too=True):
+    m = e.r32(MODE) & 0xFFFFFFFF
+    return m >> 16 == 0x4D43 and (done_too or (m >> 8) & 0xFF != 0xFF)
+
+
+def change(started=True, **kv):
+    """store(**kv), then the blocks of the clear (and with started=True the type's first block). (blocks, their calls)"""
+    store(**kv)
+    seen, n = [], 0
+    while n < 64:
+        block([(0.0, 0.0)] * N)
+        seen += calls
+        n += 1
+        if not clearing() or (not started and not clearing(done_too=False)):
+            break
+    return n, seen
+
+
+def cleared(n, seen):
+    return n >= 10 and "stock" not in seen and not [c for c in seen if c[0] == "clear"]
+
+
 def energy(x):
     return sum(v * v for v in x)
 
@@ -271,6 +298,7 @@ store(duck=0)
 SCREEN, MSG = 0x30008000, 0x30009000
 seen_msgs = []
 e.stub(0x080AB900, lambda: seen_msgs.append(e.r16(e.arg(1))))
+e.stub(0x080A3DEC, lambda: None)                         # set_label: the FX OUT tab (test_fxout.py checks it)
 view = SCREEN + 0x450
 e.w32(view + 0x3C, 0)
 for k, pid in enumerate((0x197, 0x38, 0x1D1)):
@@ -304,10 +332,10 @@ l, r = run(0.2, noise)
 check("state wiped by someone else: Munchi restarts cleanly, no crash", all(math.isfinite(v) for v in l + r))
 
 # --- back to Delay
-store(type=0)
+n, seen = change(started=False, type=0)
 block([(0.0, 0.0)] * N)
-check("switching back to Delay: the three lines are cleared, then stock runs",
-      calls == [("clear", 0x30), ("clear", 0x4C), ("clear", 0x68), "stock"], calls)
+check(f"switching back to Delay: the three lines are cleared ({n} blocks), then stock runs",
+      cleared(n, seen) and calls == ["stock"], (n, seen[:4], calls))
 block([(0.0, 0.0)] * N)
 check("... only once", calls == ["stock"], calls)
 

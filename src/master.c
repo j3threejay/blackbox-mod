@@ -28,6 +28,7 @@
  * master_list supplies the page for cell 0x40; values go through the stock global path.
  */
 #include <stdint.h>
+#include "vhs.h"
 
 #pragma GCC optimize("Os", "no-tree-loop-distribute-patterns")
 
@@ -91,9 +92,29 @@ void lfo_register(void *table);
 #define P_PR_TIME 0x1a7
 #define P_PR_MIX  0x1a8
 
-enum { MFX_OFF, MFX_VHS, MFX_PRISM, MFX_COUNT };
-const char *const mfx_names[MFX_COUNT] = {"Off", "VHS", "Prism"};
-static const char *const mfx_names_none[MFX_COUNT] = {"Off", "VHS", "---"};   /* no bank 2 payload: cpu.c's b2_present */
+enum { MFX_OFF, MFX_VHS, MFX_PRISM, MFX_TAPE, MFX_COUNT };
+const char *const mfx_names[MFX_COUNT] = {"Off", "VHS", "Prism", "TapeScam"};
+static const char *const mfx_names_none[MFX_COUNT] = {"Off", "---", "---", "---"};   /* no bank 2 payload: cpu.c's b2_present (VHS too since 3.3.y) */
+
+/* TAPESCAM (tapescam.c, Charles Vestal's, MIT; in bank 2): Master FX type 3, 3.3.p. Its eleven settings, global.
+   Ids: 0x1c8..0x1cf, then 0x143, 0x146, 0x147 (0x13c..0x17b: no stock registration, nothing compares against
+   these). NOT 0x1b9..0x1be: the insert's knobs are P_INS_RATE + k there (test_param_ids.py). */
+#include "tapescam.h"
+#define P_TS_INPUT  0x1c8
+#define P_TS_DRIVE  0x1c9
+#define P_TS_COLOR  0x1ca
+#define P_TS_WOBBLE 0x1cb
+#define P_TS_NOISE  0x1cc
+#define P_TS_TONE   0x1cd
+#define P_TS_OUTPUT 0x1ce
+#define P_TS_COMP   0x1cf
+#define P_TS_AGE    0x146
+#define P_TS_SPEED  0x147
+#define P_TS_WIDEN  0x143
+static const char *const ts_comp_names[3] = {"Off", "Lite", "Heavy"};
+static const char *const ts_age_names[3] = {"New", "Used", "Worn"};
+static const char *const ts_speed_names[3] = {"High", "Std", "Low"};
+static const char *const ts_widen_names[2] = {"Off", "On"};
 int b2_present(void);
 static const char *const pr_fx_names[4][5] = {
     {"Drive", "Sweet", "Fuzz", "Snarl", "Bloom"},
@@ -117,7 +138,7 @@ int b2_live(void);               /* cpu.c: is bank 2, where prism_block lives, t
 #define PRISM_MEM   (*(volatile uint32_t *)0x38800f70u)
 #define PRISM_CHECK (*(volatile uint32_t *)0x38800f74u)
 #define PRISM_KEY   0x5052534du
-#define EXTRA_BYTES 0x2d100u      /* behind Prism's: lfo.c's state (0x1000), usbdev.c's audio ring (0x6000), filter.c's S950 bank (0x4000), insert.c's bank (0x22000), comp.c's clipper (0x100) */
+#define EXTRA_BYTES 0x3e100u      /* behind Prism's: lfo.c's state (0x1000), usbdev.c's audio ring (0x6000), filter.c's S950 bank (0x4000), insert.c's bank (0x22000), comp.c's clipper (0x100), the EQ screen's RTA (0x10000, rta.h), the filter's switch crossfade (0x1000, filter.h) */
 
 /* which master page the knob screen shows, and whether it is showing one (backup SRAM, next to munchi's words) */
 struct master_ui {
@@ -134,6 +155,7 @@ enum { PAGE_COMP, PAGE_MFX, PAGE_MFX2, PAGE_INS };
 #define P_INS_RATE     0x1b9     /* .. 0x1be: Rate, Depth, Manual, Feedback, Spread, Mix (Phaser and Flanger) */
 #define P_INS_MIX      0x1be
 #define P_INS_GATE     0x1c2     /* .. 0x1c6: Thresh, Attack, Hold, Release, Floor (the Gate; it borrows Mix) */
+#define P_INS_TR       0x170     /* .. 0x176: the Transient's Model + six (insert.c) */
 #define APP_PADS       (0x24020088u + 0x1840u)   /* app pad stores: + row * 0xf0 + col * 0x30 */
 #define APP_PAD_CELL   0x14      /* app: u16 id of the pad the pad screens are on */
 #define APP_CAN_MOD    0x8cc6    /* app: the selected pad parameter can be modulated (INFO opens its mod screen) */
@@ -177,6 +199,15 @@ void master_register(void *table)
     fw_register_num(table, P_PR_RATE, TYPE_PCT, "Rate:", 0, 1000, "prismrate");
     fw_register_list(table, P_PR_TIME, "Time:", pr_time_names, 8, "prismtime");
     fw_register_num(table, P_PR_MIX, TYPE_PCT, "Mix:", 0, 1000, "prismmix");
+    static const uint16_t ts_num[7] = {P_TS_INPUT, P_TS_DRIVE, P_TS_COLOR, P_TS_WOBBLE, P_TS_NOISE, P_TS_TONE, P_TS_OUTPUT};
+    static const char *const ts_label[7] = {"Input:", "Drive:", "Color:", "Wobble:", "Noise:", "Tone:", "Output:"};
+    static const char *const ts_xml[7] = {"tsinput", "tsdrive", "tscolor", "tswobble", "tsnoise", "tstone", "tsoutput"};
+    for (int k = 0; k < 7; k++)
+        fw_register_num(table, ts_num[k], TYPE_PCT, ts_label[k], 0, 1000, ts_xml[k]);
+    fw_register_list(table, P_TS_COMP, "Comp:", ts_comp_names, 3, "tscomp");
+    fw_register_list(table, P_TS_AGE, "Age:", ts_age_names, 3, "tsage");
+    fw_register_list(table, P_TS_SPEED, "Speed:", ts_speed_names, 3, "tsspeed");
+    fw_register_list(table, P_TS_WIDEN, "Widen:", ts_widen_names, 2, "tswiden");
     lfo_register(table);
     insert_register(table);
 }
@@ -201,6 +232,14 @@ void master_defaults(void *store)
     fw_store_add(store, P_PR_RATE, 300);
     fw_store_add(store, P_PR_TIME, 3);
     fw_store_add(store, P_PR_MIX, 1000);
+    /* TAPESCAM: its author's defaults exactly (Input 70 %, Tone 50 %, Output 100 %, Widen On, the rest 0 / Off / New / High).
+       Measured (test_tapescam.py): a 1 kHz tone comes out at about unity, so switching it on does not jump the level;
+       lows under ~150 Hz and highs over ~6 kHz are cut by its gain stage on purpose */
+    static const uint16_t ts_id[11] = {P_TS_INPUT, P_TS_DRIVE, P_TS_COLOR, P_TS_WOBBLE, P_TS_NOISE, P_TS_TONE,
+                                       P_TS_OUTPUT, P_TS_COMP, P_TS_AGE, P_TS_SPEED, P_TS_WIDEN};
+    static const uint16_t ts_def[11] = {700, 0, 0, 0, 0, 500, 1000, 0, 0, 0, 1};
+    for (int k = 0; k < 11; k++)
+        fw_store_add(store, ts_id[k], ts_def[k]);
 }
 
 /* ---- knob pages ---- */
@@ -226,6 +265,9 @@ int master_list(uint8_t *app, uint8_t *cell, void *list, int page)
                                                                 Floor already says how far down "closed" is */
                 for (int k = 0; k < 5; k++)
                     fw_list_add(list, P_INS_GATE + k, fw_setting(store, P_INS_GATE + (unsigned)k));
+            } else if (type == 4) {                          /* Transient: Model + its six (insert.c, transient.c) */
+                for (int k = 0; k < 7; k++)
+                    fw_list_add(list, P_INS_TR + k, fw_setting(store, P_INS_TR + (unsigned)k));
             }
             return 1;
         }
@@ -233,6 +275,13 @@ int master_list(uint8_t *app, uint8_t *cell, void *list, int page)
         return fw_build(app, cell, list, page);
     }
     fw_list_clear(list);
+    if (UI->page != PAGE_COMP && fw_setting(SETTINGS, P_MFX) == MFX_TAPE) {
+        static const uint16_t page1[] = {P_TS_INPUT, P_TS_DRIVE, P_TS_COLOR, P_TS_WOBBLE, P_TS_NOISE, P_TS_TONE, P_TS_OUTPUT, 0};
+        static const uint16_t page2[] = {P_TS_COMP, P_TS_AGE, P_TS_SPEED, P_TS_WIDEN, 0};
+        for (const uint16_t *id = UI->page == PAGE_MFX2 ? page2 : page1; *id; id++)
+            fw_list_add(list, *id, fw_setting(SETTINGS, *id));
+        return 1;
+    }
     if (UI->page != PAGE_COMP && fw_setting(SETTINGS, P_MFX) == MFX_PRISM) {
         static const uint16_t page1[] = {P_PR_FX, P_PR_AMT, P_PR_FX + 1, P_PR_AMT + 1, P_PR_FX + 2, P_PR_AMT + 2, P_PR_FX + 3, P_PR_AMT + 3, 0};
         static const uint16_t page2[] = {P_PR_TILT, P_PR_RATE, P_PR_TIME, P_PR_MIX, 0};
@@ -256,6 +305,8 @@ const char *master_title(void)
     if (UI->page == PAGE_COMP)
         return "Comp";
     int type = fw_setting(SETTINGS, P_MFX);                  /* 8 characters at most: longer wraps (cpu.c) */
+    if (type == MFX_TAPE)
+        return UI->page == PAGE_MFX2 ? "Tape 2" : "Tape 1";
     return type == MFX_PRISM ? (UI->page == PAGE_MFX2 ? "Prism 2" : "Prism 1") : type == MFX_VHS ? "VHS" : "MFX";
 }
 
@@ -303,7 +354,8 @@ unsigned master_info_knob(uint8_t *app)
         fw_set_screen(app, SCREEN_PAD_CONF, 0, 0);
         return CELL_GLOBAL;
     }
-    int more = UI->page == PAGE_MFX && fw_setting(SETTINGS, P_MFX) == MFX_PRISM;
+    int t = fw_setting(SETTINGS, P_MFX);
+    int more = UI->page == PAGE_MFX && (t == MFX_PRISM || t == MFX_TAPE);
     UI->active = 0;
     fw_set_screen(app, SCREEN_TOOLS, 0, 0);
     if (more)
@@ -312,9 +364,11 @@ unsigned master_info_knob(uint8_t *app)
 }
 
 /* Replaces BACK's set_screen(0x30) on the knob screen (bl @0x080a3220): a master page goes back to Tools. */
+void fxout_leave(void);          /* fxout.c: BACK leaves an effect's OUT page too */
 void master_back(uint8_t *app, int screen, int a, int b)
 {
     bkp_enable();
+    fxout_leave();
     if (UI->active) {
         UI->active = 0;
         screen = UI->page == PAGE_INS ? SCREEN_PAD_CONF : SCREEN_TOOLS;
@@ -348,36 +402,7 @@ unsigned insert_info(uint8_t *app)
     return app[APP_CAN_MOD];
 }
 
-/* ---- VHS ---- */
-
-#define FS        48000.0f
-#define LINE      256                    /* frames, power of two */
-#define LINE_GAIN 16384.0f               /* 16-bit store with 6 dB of headroom */
-#define WOW_MAX   100.0f                 /* frames of swing each way (2.1 ms) */
-#define FLUT_MAX  14.0f                  /* 0.29 ms */
-#define BASE_DLY  2.0f
-
-struct gl_state {
-    uint32_t magic;
-    uint32_t wpos, ph_wow, ph_flut, rng, timer;
-    float dw, df;                        /* smoothed swing depths, frames */
-    float lp1[2], lp2[2], hp[2];
-    float g[2], gt[2];                   /* dropout gain and its target, per channel */
-};
-#define GL   ((volatile struct gl_state *)0x38800f20u)
-#define GLBUF ((int16_t *)0x38800b20u)   /* LINE x 2 int16 = 0x400 bytes, up to 0x38800f20 */
-#define MAGIC 0x474c3031u                /* "GL01" */
-
-static inline float exp2_fast(float x)
-{
-    if (x < -30.0f)
-        return 0.0f;
-    int i = (int)x - (x < 0.0f);
-    float f = x - (float)i, p = 1.0f + f * (0.6565f + f * 0.3435f);
-    union { float f; uint32_t u; } v;
-    v.u = (uint32_t)(i + 127) << 23;
-    return v.f * p;
-}
+/* ---- VHS (the DSP is vhs.c, in bank 2 since 3.3.y) ---- */
 
 static inline float unit(float v)
 {
@@ -389,103 +414,20 @@ static inline float pct(unsigned param)
     return unit((float)fw_setting(SETTINGS, param) * 0.001f);
 }
 
-/* sin(2 pi phase / 2^32), parabola */
-static inline float lfo(uint32_t ph)
-{
-    float x = (float)(int32_t)ph * (1.0f / 2147483648.0f);
-    return 4.0f * x * (1.0f - (x < 0.0f ? -x : x));
-}
-
-static inline float softclip(float x)
-{
-    x = x < -3.0f ? -3.0f : x > 3.0f ? 3.0f : x;
-    return x * (27.0f + x * x) / (27.0f + 9.0f * x * x);
-}
-
-static inline float rnd(uint32_t *s)
-{
-    *s = *s * 1664525u + 1013904223u;
-    return (float)(*s >> 8) * (1.0f / 16777216.0f);
-}
-
 static void vhs(float *l, float *r, int n)
 {
     bkp_enable();
-    if (GL->magic != MAGIC) {
-        for (int i = 0; i < LINE * 2; i++)
-            GLBUF[i] = 0;
-        for (unsigned i = 0; i < sizeof(struct gl_state) / 4; i++)
-            ((volatile uint32_t *)GL)[i] = 0;
-        GL->rng = 0x2545f491u;
-        GL->g[0] = GL->g[1] = GL->gt[0] = GL->gt[1] = 1.0f;
-        GL->magic = MAGIC;
-    }
-    float wow = pct(P_WOW), flut = pct(P_FLUTTER), sat = pct(P_SAT), fail = pct(P_DROPOUT), noise = pct(P_NOISE);
-    float hicut = pct(P_HICUT), locut = pct(P_LOCUT);
-
-    float drive = 1.0f + 3.0f * sat, makeup = exp2_fast(-0.5f * 1.5850f * sat * (2.0f - sat));   /* ~1 / sqrt(drive) */
-    float sat_mix = sat * 4.0f > 1.0f ? 1.0f : sat * 4.0f;
-    float dw_t = wow * WOW_MAX, df_t = flut * FLUT_MAX;
-    uint32_t inc_wow = (uint32_t)((0.4f + 1.6f * wow) * (4294967296.0f / FS));
-    uint32_t inc_flut = (uint32_t)((6.0f + 8.0f * flut) * (4294967296.0f / FS));
-    /* one-pole coefficients: 20 kHz .. 1 kHz, 20 Hz .. 800 Hz */
-    float lp_a = 1.0f - exp2_fast(-1.4427f * 6.2832f * 20000.0f * exp2_fast(-4.32f * hicut) / FS);
-    float hp_a = 1.0f - exp2_fast(-1.4427f * 6.2832f * 20.0f * exp2_fast(5.32f * locut) / FS);
-    float hiss = noise * noise * 0.02f;
-
-    struct gl_state s;                                       /* word copies: no memcpy in the cave */
-    for (unsigned i = 0; i < sizeof s / 4; i++)
-        ((volatile uint32_t *)&s)[i] = ((volatile uint32_t *)GL)[i];
-    float *ch[2] = {l, r};
-    for (int i = 0; i < n; i++) {
-        s.dw += (dw_t - s.dw) * 0.0002f;
-        s.df += (df_t - s.df) * 0.0002f;
-        s.ph_wow += inc_wow;
-        s.ph_flut += inc_flut;
-        float d = BASE_DLY + s.dw * (1.0f + lfo(s.ph_wow)) + s.df * (1.0f + lfo(s.ph_flut));
-        int di = (int)d;
-        float frac = d - (float)di;
-
-        if (fail <= 0.0f) {
-            s.gt[0] = s.gt[1] = 1.0f;
-            s.timer = 0;
-        } else if (s.timer) {
-            s.timer--;
-        } else if (s.gt[0] < 1.0f || s.gt[1] < 1.0f) {       /* a dropout ends; wait for the next */
-            s.gt[0] = s.gt[1] = 1.0f;
-            s.timer = (uint32_t)((0.1f + rnd(&s.rng) * (0.15f + 4.0f * (1.0f - fail))) * FS);
-        } else {                                             /* a dropout starts: 20 .. 220 ms */
-            float depth = 1.0f - fail * (0.4f + 0.6f * rnd(&s.rng)), side = rnd(&s.rng);
-            s.gt[0] = side < 0.25f ? 1.0f : depth;
-            s.gt[1] = side >= 0.25f && side < 0.5f ? 1.0f : depth;
-            s.timer = (uint32_t)((0.02f + 0.2f * rnd(&s.rng)) * FS);
-        }
-
-        for (int c = 0; c < 2; c++) {
-            float x = ch[c][i];
-            x = (x + sat_mix * (softclip(x * drive) * makeup - x)) * LINE_GAIN;   /* Saturate 0 = clean */
-            x = x > 32767.0f ? 32767.0f : x < -32767.0f ? -32767.0f : x;
-            GLBUF[(s.wpos & (LINE - 1)) * 2 + c] = (int16_t)x;
-            float a = (float)GLBUF[((s.wpos - (uint32_t)di) & (LINE - 1)) * 2 + c];
-            float b = (float)GLBUF[((s.wpos - (uint32_t)di - 1) & (LINE - 1)) * 2 + c];
-            float y = (a + (b - a) * frac) * (1.0f / LINE_GAIN);
-            s.g[c] += (s.gt[c] - s.g[c]) * 0.003f;
-            y *= s.g[c];
-            if (hicut > 0.0f) {
-                s.lp1[c] += (y - s.lp1[c]) * lp_a;
-                s.lp2[c] += (s.lp1[c] - s.lp2[c]) * lp_a;
-                y = s.lp2[c];
-            }
-            if (locut > 0.0f) {
-                s.hp[c] += (y - s.hp[c]) * hp_a;
-                y -= s.hp[c];
-            }
-            ch[c][i] = y + hiss * (2.0f * rnd(&s.rng) - 1.0f);
-        }
-        s.wpos++;
-    }
-    for (unsigned i = 0; i < sizeof s / 4; i++)
-        ((volatile uint32_t *)GL)[i] = ((volatile uint32_t *)&s)[i];
+    if (!b2_live())               /* VHS's DSP is in bank 2 (3.3.y): pass through without it */
+        return;
+    struct vhs_params p;
+    p.wow = pct(P_WOW);
+    p.flut = pct(P_FLUTTER);
+    p.sat = pct(P_SAT);
+    p.fail = pct(P_DROPOUT);
+    p.noise = pct(P_NOISE);
+    p.hicut = pct(P_HICUT);
+    p.locut = pct(P_LOCUT);
+    vhs_block(&p, l, r, n);
 }
 
 /* ---- Prism ---- */
@@ -516,6 +458,7 @@ void master_alloc(int *line, int floats)
         *(volatile uint32_t *)(mem + PRISM_BYTES + 0x7000u) = 0;
         *(volatile uint32_t *)(mem + PRISM_BYTES + 0xb000u) = 0;    /* insert.c's bank */
         *(volatile uint32_t *)(mem + PRISM_BYTES + 0x2d000u) = 0;   /* comp.c's clipper */
+        *(volatile uint32_t *)(mem + PRISM_BYTES + 0x2d100u) = 0;   /* rta_dsp.c */
     }
 }
 
@@ -551,26 +494,55 @@ static void prism(float bpm, float *l, float *r, int n)
     prism_block(mem, &p, bpm, l, r, n);
 }
 
+static void tapescam(float *l, float *r, int n)
+{
+    uint8_t *mem = prism_mem();
+    if (!mem || !b2_live())       /* no memory, or TAPESCAM's DSP (bank 2) not there: pass through */
+        return;
+    struct tapescam_params p;
+    p.input = pct(P_TS_INPUT);
+    p.drive = pct(P_TS_DRIVE);
+    p.color = pct(P_TS_COLOR);
+    p.wobble = pct(P_TS_WOBBLE);
+    p.noise = pct(P_TS_NOISE);
+    p.tone = pct(P_TS_TONE);
+    p.output = pct(P_TS_OUTPUT);
+    p.comp = (uint32_t)fw_setting(SETTINGS, P_TS_COMP);
+    p.age = (uint32_t)fw_setting(SETTINGS, P_TS_AGE);
+    p.speed = (uint32_t)fw_setting(SETTINGS, P_TS_SPEED);
+    p.widen = (uint32_t)fw_setting(SETTINGS, P_TS_WIDEN);
+    tapescam_block(mem, &p, l, r, n);
+}
+
 /* Called by comp_process every block: is an effect selected? An effect that is not selected is cleared for its next start. */
+#ifdef SLICE_DIAG
+void sdiag_block(void);          /* filter.c */
+#endif
 int master_on(void)
 {
+#ifdef SLICE_DIAG
+    sdiag_block();
+#endif
     int type = fw_setting(SETTINGS, P_MFX);
     bkp_enable();
-    if (type != MFX_VHS && GL->magic == MAGIC)
-        GL->magic = 0;
-    if (type != MFX_PRISM) {
+    if (type != MFX_VHS && *VHS_MAGIC_AT == VHS_MAGIC)
+        *VHS_MAGIC_AT = 0;
+    if (type != MFX_PRISM && type != MFX_TAPE) {       /* TAPESCAM borrows Prism's block: one Master FX at a time */
         uint8_t *mem = prism_mem();
-        if (mem && *(volatile uint32_t *)mem == PRISM_MAGIC)
-            *(volatile uint32_t *)mem = 0;
+        if (mem && *(volatile uint32_t *)mem != 0)
+            *(volatile uint32_t *)mem = 0;               /* either's magic: the next one selected starts fresh */
     }
-    return type == MFX_VHS || type == MFX_PRISM;
+    return type == MFX_VHS || type == MFX_PRISM || type == MFX_TAPE;
 }
 
 /* Called by comp_process with Out 1's channels, before the compressor. bpm: the preset tempo (0 if not known). */
 void master_fx(float bpm, float *l, float *r, int n)
 {
-    if (fw_setting(SETTINGS, P_MFX) == MFX_PRISM)
+    int type = fw_setting(SETTINGS, P_MFX);
+    if (type == MFX_PRISM)
         prism(bpm, l, r, n);
+    else if (type == MFX_TAPE)
+        tapescam(l, r, n);
     else
         vhs(l, r, n);
 }

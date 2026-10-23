@@ -224,8 +224,8 @@ added = []
 e.stub(0x08093EF6, lambda: added.append((e.arg(1), e.arg(2))))
 e.call("comp_defaults", 0x24072000, 0xB4, 1)
 check("settings defaults: Compressor 1 (Stock) as before, then Comp Thresh 0, Smash Depth 50 %, Time 50 %", added[:4] == [(0xB4, 1), (0x1D0, 0), (0x1EA, 500), (0x1EB, 500)], added)
-page = [e.r16(0x080EED18 + 2 * k) for k in range(12)]
-check("Tools Main page: Headphone, Master FX, Compressor (signal order; Comp Thresh is on the knob page), Out 1-3, Brightness, Metronome, Metro Out, Metro Gain, SD Mode", page == [0xBA, 0x1DB, 0xB4, 0xBB, 0xBC, 0xBD, 0x7F, 0xCD, 0xF6, 0xF7, 0x19B, 0], [hex(v) for v in page])
+page = [e.r16(0x080EED18 + 2 * k) for k in range(14)]
+check("Tools Main page: Headphone, Master FX, Compressor (signal order; Comp Thresh is on the knob page), Out 1-3, Brightness, Metronome, Metro Out, Metro Gain, SD Mode, Groove, Theme", page == [0xBA, 0x1DB, 0xB4, 0xBB, 0xBC, 0xBD, 0x7F, 0xCD, 0xF6, 0xF7, 0x19B, 0x145, 0x144, 0], [hex(v) for v in page])
 check("pad Overdrive label reads 'Saturation:' (xml name unchanged)", e.cstr(e.r32(0x0808D878)) == "Saturation:" and e.cstr(0x080CC620) == "overdrive", e.cstr(e.r32(0x0808D878)))
 
 print(f"\n{fails} failure(s)")

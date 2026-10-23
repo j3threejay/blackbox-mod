@@ -31,6 +31,8 @@ def param():
 
 e.stub(0x0806FB30, param)
 e.w32(OBJ + 0x84, PARAMS)
+e.uc.mem_map(0x38800000, 0x1000)       # backup SRAM + its clock: a SLICE_DIAG build looks for its block
+e.uc.mem_map(0x58024000, 0x1000)       # (the address reads 0 here, so it records nothing)
 
 
 def curve(addr, x):
@@ -298,7 +300,7 @@ check("crunch and filter together: crunched, then low-passed (no longer stair-st
 reset()
 setup(-0.6, 0.3)
 l, _ = run(sine(997))
-check("state from an older build (magic SVF1 / SVF2) is reinitialised, not reused", e.r32(OBJ + 4) == 0x53564633)
+check("state from an older build (magic SVF1 - SVF4) is reinitialised, not reused", e.r32(OBJ + 4) == 0x53564635)
 
 # --- call sites
 reset()
@@ -424,9 +426,8 @@ def q12(x):
     return [round(v * 2048) / 2048 for v in x]
 
 
-e.uc.mem_map(0x38800000, 0x1000)                 # backup SRAM: master.c keeps the SDRAM block's address there
-e.uc.mem_map(0x58024000, 0x1000)
-e.uc.mem_map(0xC0000000, 0x90000)
+# backup SRAM (master.c keeps the SDRAM block's address there) and its clock: mapped at the top
+e.uc.mem_map(0xC0000000, 0x100000)                  # the whole block (0x94900 since 3.3.z)
 SDRAM, BANK = 0xC0000000, 0xC0000000 + 0x56800 + 0x7000
 
 
@@ -618,5 +619,43 @@ set_interp(0, sat=1000)
 reset()
 l = run(sine(997))[0]
 check("Saturation in Normal Fidelity: no drive here (the warm saturation in od.c handles it)", all(abs(p - q) < 1e-7 for p, q in zip(l, sine(997))))
+
+# --- 3.3.z: THE POP AT THE CENTRE. Filter 0 = off, left = low-pass, right = high-pass; a switch is one block's S-curve
+# crossfade (scratch in master.c's SDRAM block) and a low-pass starts from the input level. Click measure: the largest
+# second difference, against a clean 110 Hz sine's own (1.0e-4). 3.3.y: 0.0138 turning slowly through 0, 0.70 with an
+# LFO jumping from one side to the other.
+sdram(True)
+
+
+def sweep(knobs, hz=110, amp=0.5):
+    out, t = [], 0
+    for k in knobs:
+        setup(k)
+        out += run(sine(hz, N, t, amp))[0]
+        t += N
+    return out
+
+
+def click(y):
+    return max(abs(y[i + 1] - 2 * y[i] + y[i - 1]) for i in range(N, len(y) - 1))
+
+
+reset()
+slow = click(sweep([round(-0.1 + 0.005 * i, 4) for i in range(41)]))
+check(f"turning the Filter slowly through 0: no click ({slow:.5f}; 3.3.y 0.0138)", slow < 0.002, slow)
+reset()
+lfo = click(sweep([-0.05, 0.05] * 10))
+check(f"an LFO jumping across 0 every block: no pop ({lfo:.5f}; 3.3.y 0.70)", lfo < 0.002, lfo)
+reset()
+held = click(sweep([-0.05] * 12))
+check(f"held on one side: the filter alone, no artefact ({held:.6f})", held < 0.0002, held)
+reset()
+setup(0.0)
+run(sine(110, N, 0))
+setup(-0.6)
+y = run(sine(110, N, N))[0]
+check("a low-pass switched on mid-wave starts from the signal, not from 0 (first sample within 0.05 of the input)",
+      abs(y[0] - sine(110, N, N)[0]) < 0.05, (y[0], sine(110, N, N)[0]))
+
 print(f"\n{fails} failure(s)")
 sys.exit(1 if fails else 0)

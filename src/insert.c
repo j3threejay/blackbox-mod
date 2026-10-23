@@ -43,6 +43,10 @@ typedef int (*buf_chans_fn)(void *buf, float **left, float **right);
 #define P_INS_GATE   0x1c2       /* the Gate's own five: Thresh, Attack, Hold, Release, Floor. It borrows Mix,
                                     which means the same thing for every type, so its page is 0x1c2 .. 0x1c6 + Mix */
 #define P_INS_IN     0x1c7       /* "Input:" - the live audio input played through this pad */
+#define P_INS_TR     0x170       /* Transient's own seven: Model, Attack, Sustain, Speed, Length, Output, Mix
+                                    (0x170 .. 0x176: unregistered by stock and never compared by it) */
+#define TYPE_BIPOLAR 9           /* -1000 .. 1000, shown as a signed percentage (stock's Pan, Amount) */
+#define TYPE_DB      7           /* milli-dB, shown as dB */
 
 /*
  * LIVE INPUT ON A PAD (requested 2026-10-10: the input through a pad's insert, its sends and the master FX, "an extra
@@ -76,8 +80,8 @@ struct fw_buf {                  /* stock's buffer object, as fw_buf_frames / fw
 #define APP_MUTED(q) (*(const volatile uint8_t *)(0x24020088u + 0x8a88u + ((q) >> 2) * 0x78u + ((q) & 3u) * 0x18u + 0xdu))
                                                          /* app pad records: + 0xd = muted (as solo.c) */
 
-static const char *const type_names[INS_TYPES] = {"Off", "Phaser", "Flanger", "Gate"};
-static const char *const type_names_none[INS_TYPES] = {"Off", "---", "---", "---"};   /* no bank 2 payload: cpu.c's b2_present */
+static const char *const type_names[INS_TYPES] = {"Off", "Phaser", "Flanger", "Gate", "Transnt"}   /* 8 characters at most: the knob value cuts the rest ("Transien", 3.3.v photo) */;
+static const char *const type_names_none[INS_TYPES] = {"Off", "---", "---", "---", "---"};   /* no bank 2 payload: cpu.c's b2_present */
 int b2_present(void);
 static const char *const in_names[IN_SOURCES] = {"Off", "In 1", "In 2", "In 1+2"};
 static const char *const ph_names[PH_MODELS] = {"Pebble", "Ninety", "Vibe", "Deep", "Steps"};
@@ -99,6 +103,14 @@ void insert_register(void *table)
     static const char *const g_xml[5] = {"insthresh", "insattack", "inshold", "insrelease", "insfloor"};
     for (int i = 0; i < 5; i++)
         fw_register_num(table, P_INS_GATE + i, TYPE_PCT, g_label[i], 0, 1000, g_xml[i]);
+    static const char *const tr_models[TS_MODELS] = {"Differ", "Punch", "Smooth"};
+    fw_register_list(table, P_INS_TR, "Model:", tr_models, TS_MODELS, "instrmodel");
+    fw_register_num(table, P_INS_TR + 1, TYPE_BIPOLAR, "Attack:", -1000, 1000, "instrattack");
+    fw_register_num(table, P_INS_TR + 2, TYPE_BIPOLAR, "Sustain:", -1000, 1000, "instrsustain");
+    fw_register_num(table, P_INS_TR + 3, TYPE_PCT, "Speed:", 0, 1000, "instrspeed");
+    fw_register_num(table, P_INS_TR + 4, TYPE_PCT, "Length:", 0, 1000, "instrlength");
+    fw_register_num(table, P_INS_TR + 5, TYPE_DB, "Output:", -12000, 12000, "instroutput");
+    fw_register_num(table, P_INS_TR + 6, TYPE_PCT, "Mix:", 0, 1000, "instrmix");
 }
 
 void insert_defaults(void *store)
@@ -114,6 +126,11 @@ void insert_defaults(void *store)
     for (int i = 0; i < 5; i++)
         fw_store_add(store, P_INS_GATE + i, gate_first[i]);
     fw_store_add(store, P_INS_IN, IN_OFF);
+    /* Transient as it first comes up: Differ, Attack +40 % (switching it on is heard at once), Sustain 0, both times
+       at their middle (~7 ms rise, ~300 ms sustain), 0 dB, all shaped */
+    static const int16_t tr_first[7] = {TS_DIFFER, 400, 0, 500, 500, 0, 1000};
+    for (int i = 0; i < 7; i++)
+        fw_store_add(store, P_INS_TR + i, tr_first[i]);
 }
 
 /* ---- the engine ---- */
@@ -123,10 +140,11 @@ struct ins_bank {
     struct ins_set set[16];
     struct ins_state st[16];
 };
-#define INS_MAGIC  0x494e5332u   /* "INS2": bumped with the layout. The SDRAM keeps its contents through a reset and a
+#define INS_MAGIC  0x494e5333u   /* "INS3" (3.3.u: the Transient's state): bumped with the layout. The SDRAM keeps its contents through a reset and a
                                     reflash, so an old magic would vouch for bytes an older build never wrote. */
 #define INS_OFFSET (0x56800u + 0xb000u)                  /* behind Prism, the LFOs, the USB ring and the S950 bank */
-_Static_assert(sizeof(struct ins_bank) <= 0x22000, "master.c's EXTRA_BYTES gives the bank 0x22000");
+_Static_assert(sizeof(struct ins_bank) <= 0x21800, "master.c's EXTRA_BYTES gives the bank 0x22000, of which repeat.c "
+               "keeps the last 0x800");
 
 uint8_t *master_block(void);     /* master.c: the boot-time SDRAM block, or 0 */
 
@@ -164,8 +182,10 @@ static float knob(const void *store, unsigned param)
 }
 
 /* duck_block calls this once per engine block: one pad's settings per call. */
+void meter_tick(void);          /* meter.c: the meters' fall and liveness, once a block */
 void insert_tick(void)
 {
+    meter_tick();
     struct ins_bank *b = bank();
     if (!b)
         return;
@@ -196,6 +216,21 @@ void insert_tick(void)
         models = FL_MODELS;
     }
     p->model = (uint8_t)(model < models ? model : 0);        /* the Gate has only one */
+    if (type == INS_TRANS) {
+        int m = fw_setting(store, P_INS_TR);
+        p->ts.model = (uint32_t)(m >= 0 && m < TS_MODELS ? m : TS_DIFFER);
+        int a = fw_setting(store, P_INS_TR + 1), su = fw_setting(store, P_INS_TR + 2);
+        p->ts.attack = (float)(a < -1000 ? -1000 : a > 1000 ? 1000 : a) * 0.001f;
+        p->ts.sustain = (float)(su < -1000 ? -1000 : su > 1000 ? 1000 : su) * 0.001f;
+        p->ts.speed = knob(store, P_INS_TR + 3);
+        p->ts.length = knob(store, P_INS_TR + 4);
+        int o = fw_setting(store, P_INS_TR + 5);
+        o = o < -12000 ? -12000 : o > 12000 ? 12000 : o;
+        p->ts.output = 0.5f + (float)o * (1.0f / 24082.4f);    /* transient.c: 2^((output - 0.5) x 4) */
+        p->ts.mix = knob(store, P_INS_TR + 6);
+        p->type = (uint8_t)type;
+        return;
+    }
     p->mix = knob(store, P_INS_MIX);                     /* Phaser and Flanger share this one */
     if (type == INS_GATE) {
         p->mix = 1.0f;                                   /* the Gate does not: the shared Mix comes up at 50 %, which
@@ -218,8 +253,11 @@ void insert_tick(void)
 
 /* insert_buf_a / _b: does this pad need its own mix buffer for an insert? No floating point in here: the thunks are
    entered with the caller's float registers live. */
+int meter_alive(void);          /* meter.c: the Mixer is showing (its meters need every pad in a buffer of its own) */
 int insert_on(const uint8_t *pad)
 {
+    if (meter_alive())
+        return 1;
     struct ins_bank *b = bank();
     if (!b)
         return 0;

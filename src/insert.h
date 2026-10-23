@@ -3,7 +3,9 @@
 #define INSERT_H
 #include <stdint.h>
 
-enum { INS_OFF, INS_PHASER, INS_FLANGER, INS_GATE, INS_TYPES };
+#include "transient.h"
+
+enum { INS_OFF, INS_PHASER, INS_FLANGER, INS_GATE, INS_TRANS, INS_TYPES };
 enum { PH_PEBBLE, PH_NINETY, PH_VIBE, PH_DEEP, PH_STEPS, PH_MODELS };
 enum { FL_ELECTRA, FL_JET, FL_TAPE, FL_METAL, FL_MODELS };
 
@@ -21,6 +23,7 @@ struct ins_set {
     uint8_t type, model, input, _r;
     float rate, depth, manual, fb, spread, mix;
     float thresh, attack, hold, release, floor;
+    struct ts_params ts;                     /* Transient (transient.c): its own seven settings */
 };
 
 struct ins_state {
@@ -36,6 +39,7 @@ struct ins_state {
     float ap[2][INS_STAGES];
     float loop[2];                           /* what feeds back */
     float tone[2];                           /* the wet path's low-pass */
+    struct ts_state ts;                      /* Transient: its followers and gain */
     float line[2][INS_LINE];
 };
 

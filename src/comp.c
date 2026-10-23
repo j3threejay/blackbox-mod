@@ -68,6 +68,10 @@ void master_register(void *table);
 void master_defaults(void *store);
 void preroll_register(void *table);
 void preroll_defaults(void *store);
+void theme_register(void *table);
+void theme_defaults(void *store);
+void groove_register(void *table);
+void groove_defaults(void *store);
 void master_fx(float bpm, float *l, float *r, int n);
 int master_on(void);
 void lfo_tempo(float bpm);
@@ -79,6 +83,11 @@ void smash_block(struct smash_state *s, float depth, float time, float push, flo
 #define MODELS 5
 #define MODEL_SMASH (2 + MODELS)   /* list value 7 */
 const char *const comp_names[3 + MODELS] = {"Off", "Stock", "Glue", "Punch", "Opto", "Squash", "Limit", "Smash"};
+/* Smash's DSP is in bank 2 since 3.3.o, the five models' since 3.3.y (room in bank 1): without the payload their places
+   read "---"; a model then runs as Stock, Smash passes dry */
+static const char *const comp_names_none[3 + MODELS] = {"Off", "Stock", "---", "---", "---", "---", "---", "---"};
+int b2_present(void);
+int b2_live(void);
 
 /* Replaces the Compressor registration (FUN_0808c12c, an On/Off): same parameter, now a 7-entry list. */
 void comp_register(void *table, int param, int type, const char *label, int min, int max, const char *xml)
@@ -86,14 +95,17 @@ void comp_register(void *table, int param, int type, const char *label, int min,
     (void)type;
     (void)min;
     (void)max;
-    fw_register_list(table, param, label, comp_names, 3 + MODELS, xml);
+    fw_register_list(table, param, label, b2_present() ? comp_names : comp_names_none, 3 + MODELS, xml);
     fw_register_num(table, PARAM_THRESH, TYPE_DB, "Comp Thresh:", -24000, 12000, "compthresh");
     fw_register_num(table, PARAM_SMASH_DEPTH, TYPE_PCT, "Depth:", 0, 1000, "smashdepth");
     fw_register_num(table, PARAM_SMASH_TIME, TYPE_PCT, "Time:", 0, 1000, "smashtime");
     master_register(table);
     preroll_register(table);
+    groove_register(table);
+    theme_register(table);
     static const char *const clip_names[CLIP_TYPES] = {"Off", "Clean", "Diode"};
-    fw_register_list(table, PARAM_CLIPPER, "Clipper:", clip_names, CLIP_TYPES, "clipper");
+    static const char *const clip_names_none[CLIP_TYPES] = {"Off", "---", "---"};   /* clip.c is in bank 2 (3.3.y) */
+    fw_register_list(table, PARAM_CLIPPER, "Clipper:", b2_present() ? clip_names : clip_names_none, CLIP_TYPES, "clipper");
     fw_register_num(table, PARAM_CLIP, TYPE_PCT, "Clip:", 0, 1000, "clipamount");
     fw_register_num(table, PARAM_SHAPE, TYPE_PCT, "Shape:", 0, 1000, "clipshape");
 }
@@ -107,6 +119,8 @@ void comp_defaults(void *store, int param, int value)
     fw_store_add(store, PARAM_SMASH_TIME, 500);
     master_defaults(store);
     preroll_defaults(store);
+    groove_defaults(store);
+    theme_defaults(store);
     fw_store_add(store, PARAM_CLIPPER, CLIP_OFF);
     fw_store_add(store, PARAM_CLIP, 300);                    /* +5.4 dB into it once it is switched on */
     fw_store_add(store, PARAM_SHAPE, 800);                   /* mostly hard: rounded over the last fifth */
@@ -115,57 +129,7 @@ void comp_defaults(void *store, int param, int value)
 /* Pad Overdrive is now a different circuit (od.c): its label on the pad page. */
 const char od_label[] = "Saturation:";
 
-#define FS 48000.0f
-#define COEF(ms) __builtin_expf(-1.0f / ((ms) * 0.001f * FS))   /* folded at compile time */
-
-struct model {
-    float thresh, ratio, knee;   /* dB, x:1 (0 = infinite), dB */
-    float att, rel_fast, rel_slow, auto_db;   /* smoothing coefficients; slow release once within auto_db of target */
-    float rms;                   /* RMS detector coefficient, 0 = peak */
-    float pre, makeup, mix;      /* linear input gain, linear output gain, wet share */
-    int lookahead;               /* frames */
-};
-
-static const struct model models[MODELS] = {
-    /* Glue: 2:1, 6 dB knee, 10 ms attack, auto release 100 -> 600 ms, RMS, +3 dB */
-    {-18.0f, 2.0f, 6.0f, COEF(10.0f), COEF(100.0f), COEF(600.0f), 2.0f, COEF(10.0f), 1.0f, 1.4125f, 1.0f, 0},
-    /* Punch: 4:1, 3 dB knee, 30 ms attack lets the hit through, 80 ms release, peak, +4 dB */
-    {-20.0f, 4.0f, 3.0f, COEF(30.0f), COEF(80.0f), COEF(80.0f), 0.0f, 0.0f, 1.0f, 1.5849f, 1.0f, 0},
-    /* Opto: 3:1, 10 dB knee, 10 ms attack, 60 ms then 1.5 s release, RMS, +4 dB */
-    {-22.0f, 3.0f, 10.0f, COEF(10.0f), COEF(60.0f), COEF(1500.0f), 3.0f, COEF(20.0f), 1.0f, 1.5849f, 1.0f, 0},
-    /* Squash: 20:1, hard, 0.5 ms attack, 60 ms release, peak, +12 dB wet, blended 50/50 with dry */
-    {-35.0f, 20.0f, 0.0f, COEF(0.5f), COEF(60.0f), COEF(60.0f), 0.0f, 0.0f, 1.0f, 3.9811f, 0.5f, 0},
-    /* Limit: +6 dB in, ceiling -0.3 dBFS, 1.5 ms look-ahead, 60 ms release */
-    {-0.3f, 0.0f, 0.0f, COEF(0.5f), COEF(60.0f), COEF(60.0f), 0.0f, 0.0f, 1.9953f, 1.0f, 1.0f, 72},
-};
-#define CEILING 0.9661f          /* -0.3 dBFS */
-
-#define LA_MAX 72
-struct comp_state {
-    uint32_t magic;
-    uint32_t model;
-    float gr;                    /* current gain reduction, dB (<= 0) */
-    float ms;                    /* RMS detector: mean square */
-    uint32_t la_pos;
-    float la[LA_MAX][2];
-};
-#define S ((volatile struct comp_state *)0x38800400u)
-/* 596 bytes: up to 3.3.g this ran 4 bytes into usbdev.c's state at 0x38800650, and Limit's lookahead wrote its last
-   slot over the USB SETUP packet. usbdev.c moved to 0x38800680; this keeps it from coming back. */
-_Static_assert(0x38800400u + sizeof(struct comp_state) <= 0x38800680u, "comp.c's state runs into usbdev.c's at 0x38800680");
-#define MAGIC 0x434f4d31u        /* "COM1" */
-#define SMASH_MAGIC 0x534d5331u    /* "SMS1": switching between Smash and a model re-starts whichever comes next */
-
-/* log2 / exp2, bit tricks with quadratic correction (error ~0.005 / ~0.3%) */
-static inline __attribute__((always_inline)) float log2f_fast(float x)
-{
-    union { float f; uint32_t u; } v = {x};
-    float e = (float)((int)((v.u >> 23) & 0xff) - 128);
-    v.u = (v.u & 0x007fffffu) | 0x3f800000u;
-    float m = v.f;
-    return e + (-0.34484843f * m + 2.02466578f) * m - 0.67487759f;
-}
-
+/* exp2, bit trick with quadratic correction (~0.3 %): Smash's push. The models' own copy is in compm.c. */
 static inline __attribute__((always_inline)) float exp2f_fast(float x)
 {
     if (x < -30.0f)
@@ -180,60 +144,9 @@ static inline __attribute__((always_inline)) float exp2f_fast(float x)
     return v.f;
 }
 
-static float computer(const struct model *m, float level_db)
-{
-    float over = level_db - m->thresh, slope = m->ratio > 0.0f ? 1.0f / m->ratio - 1.0f : -1.0f;
-    if (m->knee > 0.0f && 2.0f * over > -m->knee && 2.0f * over < m->knee) {
-        float k = over + 0.5f * m->knee;
-        return slope * k * k / (2.0f * m->knee);
-    }
-    return over > 0.0f ? slope * over : 0.0f;
-}
-
-static void process(const struct model *m, float *l, float *r, int n)
-{
-    float gr = S->gr, ms = S->ms;
-    uint32_t pos = S->la_pos;
-    for (int i = 0; i < n; i++) {
-        float xl = l[i] * m->pre, xr = r[i] * m->pre;
-        float level;
-        if (m->rms > 0.0f) {
-            float p = 0.5f * (xl * xl + xr * xr);
-            ms = p + m->rms * (ms - p);
-            level = 3.0103f * log2f_fast(ms + 1e-12f);     /* 10 log10 */
-        } else {
-            float a = xl < 0.0f ? -xl : xl, b = xr < 0.0f ? -xr : xr;
-            level = 6.0206f * log2f_fast((a > b ? a : b) + 1e-9f);   /* 20 log10 */
-        }
-        float target = computer(m, level);
-        if (target < gr)
-            gr = target + m->att * (gr - target);
-        else
-            gr = target + (target - gr < m->auto_db ? m->rel_slow : m->rel_fast) * (gr - target);
-        float g = exp2f_fast(gr * 0.16610f) * m->makeup;   /* dB -> linear */
-        float dl = xl, dr = xr;
-        if (m->lookahead) {
-            dl = S->la[pos][0];
-            dr = S->la[pos][1];
-            S->la[pos][0] = xl;
-            S->la[pos][1] = xr;
-            if (++pos >= (uint32_t)m->lookahead)
-                pos = 0;
-        }
-        float yl = dl * g, yr = dr * g;
-        if (m->mix < 1.0f) {
-            yl = m->mix * yl + (1.0f - m->mix) * dl / m->pre;
-            yr = m->mix * yr + (1.0f - m->mix) * dr / m->pre;
-        }
-        yl = yl > CEILING ? CEILING : yl < -CEILING ? -CEILING : yl;
-        yr = yr > CEILING ? CEILING : yr < -CEILING ? -CEILING : yr;
-        l[i] = yl;
-        r[i] = yr;
-    }
-    S->gr = gr;
-    S->ms = ms;
-    S->la_pos = pos;
-}
+#define SMASH_MAGIC 0x534d5331u    /* "SMS1": switching between Smash and a model re-starts whichever comes next */
+/* compm.c (bank 2): Glue .. Limit, one block, its state at 0x38800400 (the block Smash uses: one runs at a time) */
+void comp_model_block(unsigned model, float off, float *l, float *r, int n);
 
 /*
  * Replaces the engine's call to the stock compressor (bl @0x08053ca0). Stock only gets here when the setting is not Off
@@ -262,7 +175,7 @@ static void clip_stage(int *obj, void *bufs)
     struct clip_state *s = (struct clip_state *)(mem + CLIP_OFFSET);
     float *l, *r;
     int n;
-    if (type <= CLIP_OFF || type >= CLIP_TYPES) {
+    if (type <= CLIP_OFF || type >= CLIP_TYPES || !b2_live()) {   /* clip_block is in bank 2 (3.3.y): off without it */
         s->magic = 0;                                        /* starts clean when it is switched on */
         return;
     }
@@ -271,8 +184,13 @@ static void clip_stage(int *obj, void *bufs)
                    (float)fw_setting(SETTINGS, PARAM_SHAPE) * 0.001f, l, r, n);
 }
 
+#ifdef CPU_PROF
+#define comp_process comp_process_body   /* prof.c times it under the hooked name */
+#endif
+void rta_tap(int *obj, void *bufs);                        /* rta.c: the EQ screen's analyser, Out 1 after the EQ */
 int comp_process(int *obj, void *bufs)
 {
+    rta_tap(obj, bufs);
     unsigned model = (unsigned)fw_setting(SETTINGS, PARAM_COMP);
     float *l, *r;
     int n;
@@ -283,6 +201,8 @@ int comp_process(int *obj, void *bufs)
     lfo_tempo(bpm);
     if (master_on() && (n = out1(obj, bufs, &l, &r)) > 0)
         master_fx(bpm, l, r, n);
+    if (model >= 2 && model < MODEL_SMASH && !b2_live())
+        model = 1;                                           /* the models' DSP is in bank 2 (3.3.y): Stock without it */
     if (model == 0) {
         clip_stage(obj, bufs);
         return 1;                                            /* Off: stock would not have called the stage at all */
@@ -299,10 +219,10 @@ int comp_process(int *obj, void *bufs)
     bkp_enable();
     if (model == MODEL_SMASH) {
         struct smash_state *o = (struct smash_state *)0x38800400u;   /* the models' block: one compressor runs at a time */
-        if (*(volatile uint32_t *)o != SMASH_MAGIC)
+        if (*(volatile uint32_t *)o != SMASH_MAGIC && b2_live())   /* smash_reset is in bank 2 too */
             smash_reset(o, SMASH_MAGIC);
         n = out1(obj, bufs, &l, &r);
-        if (n > 0) {
+        if (n > 0 && b2_live()) {                     /* smash_block is in bank 2: dry rather than fault */
             float off = (float)fw_setting(SETTINGS, PARAM_THRESH) * 0.001f;
             off = off < -24.0f ? -24.0f : off > 12.0f ? 12.0f : off;
             smash_block(o, (float)fw_setting(SETTINGS, PARAM_SMASH_DEPTH) * 0.001f,
@@ -312,26 +232,13 @@ int comp_process(int *obj, void *bufs)
         int *after = (int *)obj[2];
         return after ? (*(chain_fn *)(*after + 0xc))(after, bufs) : 1;
     }
-    if (S->magic != MAGIC || S->model != model) {
-        S->gr = 0.0f;
-        S->ms = 0.0f;
-        S->la_pos = 0;
-        for (int i = 0; i < LA_MAX; i++)
-            S->la[i][0] = S->la[i][1] = 0.0f;
-        S->model = model;
-        S->magic = MAGIC;
-    }
     n = out1(obj, bufs, &l, &r);
+    float off = 0.0f;
     if (n > 0) {
-        struct model m = models[model - 2];
-        float off = (float)fw_setting(SETTINGS, PARAM_THRESH) * 0.001f;
+        off = (float)fw_setting(SETTINGS, PARAM_THRESH) * 0.001f;
         off = off < -24.0f ? -24.0f : off > 12.0f ? 12.0f : off;
-        if (m.ratio > 0.0f)
-            m.thresh += off;
-        else
-            m.pre *= exp2f_fast(-off * 0.16610f);            /* Limit: lower threshold = more push into the ceiling */
-        process(&m, l, r, n);
     }
+    comp_model_block(model, off, l, r, n);
     clip_stage(obj, bufs);
     int *next = (int *)obj[2];                               /* stock passes the buffers on down a chain */
     if (!next)

@@ -2,7 +2,7 @@
 import os
 import struct
 
-from thumb import ROOT, bl, symbols
+from thumb import ROOT, bl, symbols, word
 
 sym = symbols(os.path.join(ROOT, "out", "cave.elf"))
 
@@ -20,6 +20,8 @@ def bw(at, target):
 SET_SCREEN = 0x0809EAEC
 
 PATCHES = [
+    # master EQ screen: the graph's draw (vtable 0x080f065c +4) draws the RTA first, then stock's curve (src/rta.c)
+    (0x080F0660, word(0x080AA13D), word(sym["rta_graph_draw"] | 1)),
     # engine: the compressor stage runs every block (was: only with Compressor on), so Master FX works with it Off
     (0x0805352E, bytes.fromhex("40f0b383"), bw(0x0805352E, 0x08053C98)),
     # knob screen 0x66 / 0x67 handler: page builder -> ours (master pages for the global cell)
@@ -50,4 +52,12 @@ PATCHES = [
     # Tools Main page: Master FX takes Comp Thresh's row (Thresh is on the Compressor knob page now)
     # ... and sits ABOVE Compressor, the order the audio runs in: Master FX, Compressor (its page has the clipper)
     (0x080EED1A, struct.pack("<2H", 0xB4, 0x1D0), struct.pack("<2H", 0x1DB, 0xB4)),
+    # Colour themes (src/theme.c): "Theme:" at the end of Tools Main, the palette applied before each GUI frame,
+    # the full redraw's clear in the theme's background, three piano roll texts off the background colour
+    (0x080EED2E, struct.pack("<2H", 0, 0), struct.pack("<2H", 0x145, 0x144)),     # Groove (groove.c, 3.3.q), then Theme
+    (0x08043E4C, bl(0x08043E4C, 0x0808B2D0), bl(0x08043E4C, sym["theme_compose"])),
+    # Boot splash (src/splash.c): the splash view's draw (vtable 0x080f19a4 +4, stock = the generic FUN_080aeaf8)
+    (0x080F19A8, word(0x080AEAF9), word(sym["splash_draw"] | 1)),
+    (0x0808B3A6, bl(0x0808B3A6, 0x0808F90C), bl(0x0808B3A6, sym["theme_clear"])),
+    *[(a, bl(a, 0x0808F23C), bl(a, sym["theme_roll_text"])) for a in (0x080BCC5A, 0x080BCECE, 0x080BD010)],
 ]

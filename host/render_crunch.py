@@ -1,4 +1,4 @@
-"""Audition renders after an Instagram find (vubeatz's MPC2000 "Sampling Mode", 2026-10-14): out/render/crunch/*.wav.
+"""Audition renders after his Instagram find (vubeatz's MPC2000 "Sampling Mode", 2026-10-14): out/render/crunch/*.wav.
 
 Each file: two bars of 4X4DRUMS103 at the original pitch, then 5 semitones down, half a second apart. Mono.
  0_clean              the loop, re-pitched cleanly (reference)

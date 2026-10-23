@@ -23,4 +23,8 @@ PATCHES = [
     # piano roll, encoder 2 (top right): with Event on it rotates the sequence instead of repeating note length
     # (src/rotate.c)
     hook(0x080C179A, 0x080BACD8, "rotate_knob"),
+    # Groove (src/groove.c): the sequence player's three swing-warp calls
+    hook(0x0805D238, 0x08069C94, "groove_s2t"),
+    hook(0x0805DC90, 0x08069C94, "groove_s2t"),
+    hook(0x0805DE58, 0x08069E84, "groove_t2s"),
 ]

@@ -123,8 +123,8 @@ check("three distinct xml names, labels short enough for the knob screen",
       and all(len(x[1]) <= 9 for x in lists + nums))
 e.stub(0x08093EF6, lambda: added.append((e.arg(1), e.arg(2))))
 e.call("munchi_defaults_last", 0x24072000, 0x35, 1)
-check("defaults at the end of the delay cell: Motion Trem, Rate 40 %, Depth 60 %",
-      added[-3:] == [(0x1BF, TREM), (0x1C0, 400), (0x1C1, 600)], added[-3:])
+check("defaults at the end of the delay cell: Motion Trem, Rate 40 %, Depth 60 % (then FX OUT's Level + Low Cut)",
+      added[-6:] == [(0x1BF, TREM), (0x1C0, 400), (0x1C1, 600), (0x149, 4000), (0x14A, 0), (0x148, 0)], added[-6:])
 check("the delay cell's store has room: %d entries of 96" % len(added), len(added) <= 96)
 img = open(IMG, "rb").read()
 check(f"the image still fits the installer's limit ({len(img)} of 786432 bytes)", len(img) <= 786432)

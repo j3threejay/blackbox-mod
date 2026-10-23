@@ -19,7 +19,7 @@
 
 #include "rev4.h"
 
-#pragma GCC optimize("Os", "no-tree-loop-distribute-patterns")
+#pragma GCC optimize("O2", "no-tree-loop-distribute-patterns")   /* bank 2: room to spare, so built for speed (3.3.l) */
 
 #define PR_FS 48000.0f
 #define PR_MAGIC 0x50525331u         /* "PRS1" */

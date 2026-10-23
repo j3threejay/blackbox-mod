@@ -186,7 +186,7 @@ enum { WAIT_BOOT, WAIT_RESET, WAIT_MODE, RUNNING, FAILED };
 
 #ifdef USB_DIAG
 /*
- * USB_DIAG=1 (2026-10-15): what the USB device side did, for a unit whose computer never sees it (a tester's: M1 Mac,
+ * USB_DIAG=1 (2026-10-15): what the USB device side did, for a unit whose computer never sees it (Chupitnik's: M1 Mac,
  * data cable, compressor Off, "not even an unknown device"). cpu.c puts usbdev_diag_text() on TOOLS in place of the
  * load, so one photo says where it stops: the phase, how many bus resets the computer sent (0 = it never saw the
  * device: wiring or pull-up), whether it got configured, and how far the 48 MHz oscillator is off. That oscillator

@@ -10,16 +10,34 @@ An unofficial feature mod for the **original 1010music Blackbox** (not the Black
 **Get new builds by email:** sign up at <https://justinjoe.com/blackbox-mod> and I'll send a note when a new build is
 out (new FX, fixes). That's all the list is for.
 
-## What it adds (JOEBOX 1)
+## What it adds (JOEBOX 2)
 
-Releases have names now. JOEBOX 1 is the one after 3.1.n, and TOOLS shows it as the version.
+TOOLS shows `JOEBOX 2` as the version. Still two files on the card, `BLACKBOX.bin` and `BBEXTRA.BIN`, and the first
+boot restarts itself once while the second file goes in.
 
-**Updated 2026-10-17, same name.** The first JOEBOX 1 got some units stuck restarting at the logo. This build fixes
-that (two of those units have confirmed it boots now). It also fixes USB audio not showing up when the compressor is
-on Limit, and the insert models have their own names (Pebble, Electra, Jet). If you installed JOEBOX 1 before, patch
-again and put both files on the card the same way.
+New since JOEBOX 1:
 
-New since 3.1.n:
+- **Less CPU.** A lot of the mod's DSP moved to the chip's second flash bank and was rebuilt for speed, Confetti
+  stops using CPU once nothing has gone into it for a few seconds, and changing the delay Type no longer spikes the
+  load. In one test on the test unit, a heavy project went from about one overload a second to about one every minute and a half.
+- **TapeScam** as a Master FX type, next to VHS and Prism: tape and VHS emulation by Charles Vestal (MIT), eleven
+  settings.
+- **Transient shaper** as an insert type ("Transnt"): Attack and Sustain, with three models (Differ, Punch, Smooth).
+- **FX OUT page** on the reverb and delay knob screens (the OUT tab): a return Level (-12 to +12 dB, +4 dB by
+  default), a Low Cut, and an Output (Out 1, 2 or 3), so a send effect can come back on its own output.
+- **Note repeat** on the Pads screen: hold RPT and hold pads, and each pad retriggers on the beat at the division
+  you pick. It follows Swing and Groove and records into the sequence.
+- **Groove** on TOOLS Main: Stock, MPC-60/3K, Linn/909 or SP-1200 timing for the Swing amount you set.
+- **Colour themes** on TOOLS Main: Stock, Midnight, Blue LCD, Amber VFD.
+- **Live meters on the Mixer**: per pad, after the fader.
+- **Spectrum on the master EQ screen** (press FX until the EQ shows): the live spectrum of Out 1 behind the EQ curve.
+- **Pad numbers** on the pad picker.
+- **A JOEBOX boot screen.**
+- **Fixed**: the pop when a pad's Filter crosses 0 (by hand or from an LFO); the machine Fidelity modes coming out
+  grittier on one hit than the next; switching a sequence from Keys to Pads and back no longer loses the notes (stock
+  clears all four patterns; now switching back brings them back, as long as nothing was recorded in between).
+
+From JOEBOX 1 (new since 3.1.n then):
 
 - **Live input on a pad**: an "Input" row on a pad's Conf tab (Off, In 1, In 2, In 1+2). The audio input plays
   through that pad, so it gets the pad's insert, its reverb and delay sends, its level and pan, and the master FX.
@@ -69,8 +87,9 @@ From 3.1.n and earlier:
 ### Known issues
 
 - This has run on very few units. If yours does something this list doesn't mention, I want to hear about it.
-- The Blackbox only has so much CPU, and the mod lets you spend all of it. Room and Prism are the expensive ones.
-  Watch the load readout on TOOLS.
+- The Blackbox only has so much CPU, and the mod lets you spend all of it. Room, Prism and TapeScam are the expensive
+  ones. Watch the load readout on TOOLS: it updates when you open TOOLS and shows the average and peak since you last
+  looked, so leave TOOLS, play, and come back.
 - LFO 2 / 3, ENV, the insert and Input are not on Granular pads.
 - A note placed very close ahead of the playhead is still sometimes silent.
 - Chords need the pad out of Mono Poly Mode.
@@ -79,8 +98,8 @@ From 3.1.n and earlier:
 - USB on the power jack doesn't work on every unit. On some, that jack's USB data side is dead with any firmware,
   stock included (1010music never used it for data). The Blackbox boots and plays fine, you just don't get USB audio
   and MIDI. If your computer never sees the Blackbox over that jack, it's the unit, not the mod.
-- The machine Fidelity modes (SP1200, SP-12, MPC60, SP Raw, SP 45) can come out grittier on one hit than the next.
-  Fixed in the next build.
+- Relapse with Recall up can play a short piece of its memory a few seconds after everything has gone quiet. That is
+  Recall doing its job, but it can sound like a click.
 
 ## Install
 
@@ -95,7 +114,7 @@ From 3.1.n and earlier:
    soon as the install screen shows.
 6. On a two-file build the Blackbox **restarts itself once**, a second or two into the first boot. That is the
    second file being installed. Leave the card in and the power on until it is back up.
-7. TOOLS should show `JOEBOX 1`.
+7. TOOLS should show `JOEBOX 2`.
 
 ### The second file
 
@@ -131,7 +150,7 @@ python3 patch.py solo slice duck chord cond filter cpu od comp seqfix fx2 munchi
 ```
 
 That writes `out/<patchsets>/BLACKBOX.bin` and `out/BBEXTRA.BIN`, byte-identical to the release.
-`python3 make_patch.py <image> "JOEBOX 1" --extra out/BBEXTRA.BIN` turns the pair into the release patch in `docs/`.
+`python3 make_patch.py <image> "JOEBOX 2" --extra out/BBEXTRA.BIN` turns the pair into the release patch in `docs/`.
 Without `RELEASE=1` you get a test build: a letter for a version, and a raw memory peek / poke over USB for
 development. That one can write anywhere in the machine, so it is not in a release.
 

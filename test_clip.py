@@ -59,6 +59,8 @@ def machine(image):
     m.stub(0x080636F0, value=LEN)
     m.stub(0x08063790, value=0)
     m.w32(PAD + 0x24, SRC)
+    m.uc.mem_map(0x38800000, 0x1000)       # backup SRAM + its clock: a SLICE_DIAG build looks for its block
+    m.uc.mem_map(0x58024000, 0x1000)       # (the address reads 0 here, so it records nothing)
     m.w32(PAD + 0x18, 1 << 8 | 2)
     return m
 

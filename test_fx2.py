@@ -12,6 +12,8 @@ from unicorn.arm_const import UC_ARM_REG_R4, UC_ARM_REG_SP
 
 from emu import STACK, Emu
 
+import os
+os.environ.setdefault("BANK2_NEW", "1")                # Room is in the bank 2 this build links (3.3.v)
 e = Emu("out/solo+slice+duck+chord+cond+filter+cpu+od+comp+seqfix+fx2+munchi+master+fault+cave/BLACKBOX.bin", "out/cave.elf")
 e.uc.mem_map(0x38800000, 0x1000)
 e.uc.mem_map(0x58024000, 0x1000)
@@ -106,7 +108,8 @@ e.call("fx2_defaults", 0x24046000, 0x37, 600)
 check("reverb cell defaults: Type = Plate first, then Decay 600 as stock", added == [(0x198, 0), (0x37, 600)], added)
 added.clear()
 e.call("fx2_defaults_last", 0x24046000, 0x3A, 500)
-check("... Room's after Damping: Size 50 %, Mod 30 %, Early 50 %, Width 100 %", added == [(0x3A, 500), (0x1D7, 500), (0x1D8, 300), (0x1D9, 500), (0x1DA, 1000)], added)
+check("... Room's after Damping: Size 50 %, Mod 30 %, Early 50 %, Width 100 %, then FX OUT's Level +4 dB, Low Cut Off, Output Out 1",
+      added == [(0x3A, 500), (0x1D7, 500), (0x1D8, 300), (0x1D9, 500), (0x1DA, 1000), (0x149, 4000), (0x14A, 0), (0x148, 0)], added)
 
 # --- Plate stays stock
 e.uc.mem_write(0x38800A00, b"\xa5" * 0x80)
@@ -201,6 +204,16 @@ block([0.0] * N)
 nonzero = sum(1 for w, n in BUFS for k in range(0, n, 97) if e.r32(e.r32(STATE + 4 * w) + 4 * k) != 0)
 check("switching Room -> Plate clears the shared buffers (no burst of the old tail)", nonzero == 0, nonzero)
 check("the patched call site goes to the thunk", e.r32(0x0806318E) != 0)
+
+# --- Room is in bank 2 since 3.3.v (fx2_room.c): with no live bank 2 the slot plays the Plate, never a call into it
+e.uc.mem_write(0x2405FFD0, bytes(4))                   # the meter not up yet: b2_live() says "not yet"
+select(1)
+block([0.0] * N)
+check("Room selected but bank 2 not live: the plate runs instead (no call into bank 2)", calls == ["plate"], calls)
+e.meter_up()
+block([0.0] * N)
+check("...and Room again once it is", calls == [], calls)
+check("Room's DSP sits in bank 2", 0x08100000 <= e.sym["room"] < 0x081E0000, hex(e.sym["room"]))
 
 print(f"\n{fails} failure(s)")
 sys.exit(1 if fails else 0)

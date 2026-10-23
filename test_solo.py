@@ -22,6 +22,8 @@ uc = Uc(UC_ARCH_ARM, UC_MODE_THUMB)
 uc.mem_map(0x08000000, 0x200000)
 uc.mem_write(BASE, IMG)
 uc.mem_map(0x24000000, 0x80000)
+uc.mem_map(0x38800000, 0x1000)                    # backup SRAM + RCC: note repeat's state lookup (repeat.c, 3.3.w)
+uc.mem_map(0x58024000, 0x1000)
 uc.mem_write(RET, b"\x00\xbf\x00\xbf")
 uc.mem_write(STATE, b"\xa5" * 64)  # uninitialised RAM: ensure() must cope
 
@@ -295,14 +297,14 @@ def ids():
 
 check("the column stepper has three positions", IMG[0x080B4704 - BASE:0x080B4706 - BASE] == bytes.fromhex("0321"))
 c = r6_call(2)
-check("knob position 2: buttons read MUTE, SOLO and two blanks, top to bottom", [x[2] for x in c if x[0] == "label"] == ["MUTE", "SOLO", "", ""] and [x[1] for x in c if x[0] == "label"] == list(ROWS), c)
-check("...with our ids, the slider hidden and the button panel shown", ids() == [0x1F1, 0x1F2, 0x1F3, 0x1F3] and [x for x in c if x[0] == "hide"] == [("hide", SLIDER, 1), ("hide", BUTTONS, 0)], (ids(), c))
+check("knob position 2: buttons read MUTE, SOLO, RPT and the repeat division (1/16), top to bottom", [x[2] for x in c if x[0] == "label"] == ["MUTE", "SOLO", "RPT", "1/16"] and [x[1] for x in c if x[0] == "label"] == list(ROWS), c)
+check("...with our ids (RPT 0x1f3, division 0x1f4), the slider hidden and the button panel shown", ids() == [0x1F1, 0x1F2, 0x1F3, 0x1F4] and [x for x in c if x[0] == "hide"] == [("hide", SLIDER, 1), ("hide", BUTTONS, 0)], (ids(), c))
 check("...and the position recorded as shown", rd32(PADS + 0x2B78) == 2)
 c = r6_call(1)
 check("position 1: the clipboard buttons are back (CLR, PSTE, COPY, CUT with the stock ids)", [x[2] for x in c if x[0] == "label"] == ["CLR", "PSTE", "COPY", "CUT"] and ids() == [0x25, 0x2A, 0x29, 0x28], (c, ids()))
 c = r6_call(0)
 check("position 0: Velocity slider shown, buttons hidden, nothing relabelled", c == [("hide", SLIDER, 0), ("hide", BUTTONS, 1)], c)
-check("...and no button left lit", lit == {0x214: 0, 0x174: 0}, lit)
+check("...and no button left lit (MUTE, SOLO, and RPT since 3.3.w)", lit == {0x214: 0, 0x174: 0, 0xD4: 0}, lit)
 
 # start clean: nothing muted, no solo set, mixer view known
 for i in range(16):
@@ -346,7 +348,9 @@ check("two more presses in a row (before the app has caught up is the same code 
 r, c = button(0x1F1, kind=1)
 check("the press itself (before the click) is swallowed without acting", r == 0 and c == [])
 r, c = button(0x1F3)
-check("a blank button does nothing", r == 0 and c == [])
+check("RPT (was a blank button) is handled here and posts nothing to the app", r == 0 and c == [])
+r, c = button(0x1F4)
+check("the division button (0x1f4): handled here, its label rewritten (no SDRAM block in this harness: still 1/16)", r == 0 and c == [("label", 0x34, "1/16")], (r, c))
 r, c = button(0x28)
 check("clipboard buttons go to the stock handler untouched", c == [("stock_child",)] and r == 1, (r, c))
 

@@ -9,6 +9,7 @@ All of it is MIT-licensed, and these notices travel with every copy.
 | CHOMPI TEMPO 1.0 firmware (granular delay, compressor, crossfades) | © CHOMPI Club | MIT | `src/munchi/tempo/` |
 | `reverb.h`, `fx_engine.h` | © Émilie Gillet (Mutable Instruments) | MIT | `src/munchi/tempo/`, notices in the files |
 | DaisySP `dsp.h` | © Electrosmith, Corp. | MIT | `src/munchi/daisysp/` |
+| TAPESCAM tape / VHS emulation ([charlesvestal/schwung-tapescam](https://github.com/charlesvestal/schwung-tapescam)) | © 2025 Charles Vestal | MIT | `src/tapescam.c` (notice in the file), reference copy and `LICENSE` in `host/tapescam_ref/` |
 | State-variable filter, after stmlib `dsp/filter.h` (`Svf`) | © 2014 Émilie Gillet | MIT | reimplemented in `src/filter.c` |
 
 ## Not included

@@ -678,9 +678,9 @@ def registered():
 fresh()
 uc.mem_write(M, bytes(36))                           # as it really is at that moment: the meter is NOT up yet
 ins, mfx, dly = registered()
-check("payload in bank 2: the lists carry the names - Phaser / Flanger / Gate, Prism, Confetti",
-      ins == ["Off", "Phaser", "Flanger", "Gate"] and mfx == ["Off", "VHS", "Prism"] and dly[-1] == "Confetti" and dly[0] == "Delay",
-      (ins, mfx, dly))
+check("payload in bank 2: the lists carry the names - Phaser / Flanger / Gate, Prism / TapeScam, Motion / Relapse / Confetti",
+      ins == ["Off", "Phaser", "Flanger", "Gate", "Transnt"] and mfx == ["Off", "VHS", "Prism", "TapeScam"]
+      and dly == ["Delay", "Munchi", "Motion", "Relapse", "Confetti"], (ins, mfx, dly))
 check("...and asking leaves the mark down", word(MARK) == 0)
 for what, kw in (("NO PAYLOAD (BLACKBOX.bin copied to the card and nothing else)", dict(bank=b"")),
                  ("another build's payload", dict(bank=bytes(other))),
@@ -688,15 +688,16 @@ for what, kw in (("NO PAYLOAD (BLACKBOX.bin copied to the card and nothing else)
     fresh(**kw)
     uc.mem_write(M, bytes(36))
     ins, mfx, dly = registered()
-    check(f"{what}: the three effects are listed as '---', every other entry as before, and the lists keep their length",
-          ins == ["Off", "---", "---", "---"] and mfx == ["Off", "VHS", "---"] and dly[-1] == "---" and dly[:1] == ["Delay"]
-          and "Relapse" in dly and "Motion" in dly and len(dly) == 5, (ins, mfx, dly))
+    check(f"{what}: the bank 2 effects are listed as '---' (inserts, Prism, since 3.3.o Motion / Relapse / Confetti, since "
+          "3.3.y VHS and Munchi), every other entry as before, and the lists keep their length",
+          ins == ["Off", "---", "---", "---", "---"] and mfx == ["Off", "---", "---", "---"]
+          and dly == ["Delay", "---", "---", "---", "---"], (ins, mfx, dly))
 for what, m in (("the mark up from a dead scan", SCAN_MARK), ("the mark up from a naming read that died", NAME_MARK)):
     fresh(mark=m)
     uc.mem_write(M, bytes(36))
     ins, mfx, dly = registered()
     check(f"{what}: '---' as well, bank 2 is not read to find out, and the mark is left for the loader",
-          ins == ["Off", "---", "---", "---"] and mfx[-1] == "---" and dly[-1] == "---" and not reads and word(MARK) == m,
+          ins == ["Off", "---", "---", "---", "---"] and mfx[-1] == "---" and dly[-1] == "---" and not reads and word(MARK) == m,
           (ins, len(reads), hex(word(MARK))))
 fresh()
 uc.mem_write(M, bytes(36))

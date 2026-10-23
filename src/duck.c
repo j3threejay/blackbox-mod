@@ -71,9 +71,21 @@ struct duck_state {
 /* Replaces the call to the engine's control tick (FUN_08053164). */
 void lfo_tick(uint32_t now);
 void insert_tick(void);          /* insert.c: one pad's insert settings per block */
+void repeat_tick(uint8_t *engine, const uint32_t *bufs);   /* repeat.c: note repeat's due notes for the coming block */
+
+#ifdef CPU_PROF
+void prof_ctl(uint32_t ours, uint32_t stock, unsigned starts);   /* prof.c */
+#define CYC (*(volatile uint32_t *)0xe0001004u)
+#endif
 
 int duck_block(uint8_t *engine, void *a, void *b)
 {
+#ifdef CPU_PROF
+    uint32_t t0 = CYC;
+    unsigned starts = 0;                         /* pads that started a voice since the last tick (lfo_tick clears) */
+    for (unsigned v = D->trigs; v; v &= v - 1u)
+        starts++;
+#endif
     uint32_t now = *(uint32_t *)engine;          /* low word of the 64-bit sample clock */
     if (D->magic != MAGIC) {
         for (int i = 0; i < SOURCES; i++) {
@@ -129,7 +141,15 @@ int duck_block(uint8_t *engine, void *a, void *b)
     }
     lfo_tick(now);
     insert_tick();
+    repeat_tick(engine, (const uint32_t *)a);
+#ifdef CPU_PROF
+    uint32_t t1 = CYC;
+    int r = fw_process(engine, a, b);
+    prof_ctl(t1 - t0, CYC - t1, starts);
+    return r;
+#else
     return fw_process(engine, a, b);
+#endif
 }
 
 /*

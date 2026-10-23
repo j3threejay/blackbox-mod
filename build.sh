@@ -13,17 +13,17 @@ mkdir -p out out/obj
 
 # The files that live in bank 2. Leaf DSP only: nothing the engine reaches before bank 2 has been checked, and
 # nothing holding state that bank 1 needs at boot.
-BANK2_SRCS="prism confetti insert_dsp rev4"
+BANK2_SRCS="prism confetti insert_dsp rev4 smash relapse motion tapescam splash_img transient fx2_room compm clip vhs filter_dsp s950 rta_dsp"   # smash relapse motion: 3.3.o, for room in bank 1; splash_img: 3.3.t, the boot graphic (data only)
 # BANK 2 IS FOR LEAF DSP ONLY. A function the firmware reaches through a patched call site must stay in bank 1,
 # or a bad bank 2 faults before anything can check it - which is how 3.2.m's first cut would have boot-looped.
-# munchi.o holds munchi_process, munchi_register, munchi_list and fx_screen_msg, all hooks, so it stays in bank 1.
-# Splitting Munchi's engine out into its own translation unit would let the engine go up; not done yet.
-BANK2_OBJS=""
+# munchi.o holds munchi_process, munchi_register, munchi_list and fx_screen_msg, all hooks, so it stays in bank 1;
+# 3.3.y split Munchi's engine out into munchi_dsp.cpp, which goes up.
+BANK2_OBJS="out/munchi_dsp.o"
 
 # One id for both banks in a build, so bank 1 can tell a matching bank 2 from a stale one. It is a hash of the
 # bank 2 sources and the flags, NOT a timestamp: identical code has to give an identical id, or reflashing an
 # older image would need bank 2 reprogrammed even though the payload up there is already right.
-B2_ID=$(for b in $BANK2_SRCS; do cat "src/$b.c"; done | cat - src/b2head.c | shasum -a 256 | cut -c1-8 | awk '{printf "0x%s", $1}')
+B2_ID=$(for b in $BANK2_SRCS; do cat "src/$b.c"; done | cat - src/munchi_dsp.cpp src/b2head.c | shasum -a 256 | cut -c1-8 | awk '{printf "0x%s", $1}')
 
 CFLAGS="-mcpu=cortex-m7 -mthumb -mfloat-abi=hard -mfpu=fpv5-d16 -Os -ffreestanding -nostdlib -fno-builtin -Wall -Wextra -Werror -DB2_ID=$B2_ID -DB2LOAD_WRITE=${B2LOAD_WRITE:-1}"
 
@@ -36,10 +36,18 @@ CFLAGS="-mcpu=cortex-m7 -mthumb -mfloat-abi=hard -mfpu=fpv5-d16 -Os -ffreestandi
 [ "${FAULT_SHOW:-0}" = 1 ] && CFLAGS="$CFLAGS -DFAULT_SHOW=1"
 # USB_DIAG=1: TOOLS shows the USB device's state and the HSI48 error instead of the load (usbdev.c)
 [ "${USB_DIAG:-0}" = 1 ] && CFLAGS="$CFLAGS -DUSB_DIAG=1"
+# SLICE_DIAG=1: per-trigger rows for clip / slicer voices in SDRAM, read with measure/slice_diag.py (filter.c). Debug only.
+[ "${SLICE_DIAG:-0}" = 1 ] && CFLAGS="$CFLAGS -DSLICE_DIAG=1"
+# CPU_PROF=1: per-block section timings + the worst blocks, read with measure/cpu_prof.py (prof.c). Debug only.
+[ "${CPU_PROF:-0}" = 1 ] && CFLAGS="$CFLAGS -DCPU_PROF=1" && CPPFLAGS_PROF=-DCPU_PROF=1
 [ "${MUNCHI:-1}" = 1 ] || MUNCHI_FLAG=-DMUNCHI_OFF
-arm-none-eabi-g++ $MUNCHI_FLAG -mcpu=cortex-m7 -mthumb -mfloat-abi=hard -mfpu=fpv5-d16 -Os -ffreestanding -nostdlib -fno-exceptions \
+arm-none-eabi-g++ $MUNCHI_FLAG $CPPFLAGS_PROF -mcpu=cortex-m7 -mthumb -mfloat-abi=hard -mfpu=fpv5-d16 -Os -ffreestanding -nostdlib -fno-exceptions \
   -fno-rtti -fno-threadsafe-statics -fno-use-cxa-atexit -fno-math-errno -std=gnu++17 -Wall -Werror -Wno-unused-function \
   -Wno-class-memaccess -Wno-unused-but-set-variable -Wno-unused-variable -Wno-unused-parameter -isystem src/munchi/sys -c -o out/munchi.o src/munchi.cpp
+arm-none-eabi-g++ $MUNCHI_FLAG -mcpu=cortex-m7 -mthumb -mfloat-abi=hard -mfpu=fpv5-d16 -Os -ffreestanding -nostdlib -fno-exceptions \
+  -fno-rtti -fno-threadsafe-statics -fno-use-cxa-atexit -fno-math-errno -std=gnu++17 -Wall -Werror -Wno-unused-function \
+  -Wno-class-memaccess -Wno-unused-but-set-variable -Wno-unused-variable -Wno-unused-parameter -isystem src/munchi/sys -c -o out/munchi_dsp.o src/munchi_dsp.cpp
+arm-none-eabi-objcopy --localize-symbol=memset out/munchi_dsp.o   # its own memset, not bank 1's (munchi_dsp.cpp)
 
 OBJS=""
 for f in src/*.c; do
@@ -98,7 +106,7 @@ PY
 # byte for byte. If it is not, bank 2's own code changed: build with BANK2_NEW=1 and ship the new out/BBEXTRA.BIN
 # beside BLACKBOX.bin - the card loader writes it. (Bank 2 calls nothing in the cave since 3.3.c; test_bank2.py
 # fails the build if that ever stops being true.)
-DEPLOYED_B2=card-backup/BANK2-3.3.c-payload.bin
+DEPLOYED_B2=card-backup/BANK2-3.3.z-payload.bin   # on the test unit since 3.3.z (10-21)
 if [ ! -f "$DEPLOYED_B2" ]; then
   :   # no record here of what is on a unit (the public tree): the build ships its own bank 2 as out/BBEXTRA.BIN
 elif ! cmp -s out/bank2.bin "$DEPLOYED_B2"; then

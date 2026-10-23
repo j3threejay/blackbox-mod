@@ -18,6 +18,7 @@
  * are band-limited. A band-limited clip overshoots a little (it cannot be both), so a plain clamp at the ceiling
  * finishes; that clamp is all that still folds back. Measured against a plain clip: host/render_clip.py.
  */
+#pragma GCC optimize("O2", "no-tree-loop-distribute-patterns")   /* per-sample on the master, built for speed (3.3.l) */
 #include "clip.h"
 
 #define CEILING 0.9661f          /* -0.3 dBFS, as comp.c's Limit */

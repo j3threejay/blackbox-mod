@@ -16,6 +16,8 @@ from unicorn.arm_const import UC_ARM_REG_S0, UC_ARM_REG_S1, UC_ARM_REG_SP
 from emu import STACK, Emu
 
 e = Emu("out/solo+slice+duck+chord+cond+filter+cpu+od+comp+seqfix+fx2+munchi+master+fault+cave/BLACKBOX.bin", "out/cave.elf")
+e.uc.mem_map(0x38800000, 0x1000)       # backup SRAM + its clock: machine_read looks for the hold stash (3.3.k)
+e.uc.mem_map(0x58024000, 0x1000)       # (the address reads 0 here, so there is none)
 PAD, SRC, SCR, OUT, SCRD, OUTD, ARR = 0x24060000, 0x24061000, 0x24062000, 0x24062100, 0x24064000, 0x24068000, 0x24073000
 APP_PADS = 0x24020088 + 0x1840
 N = 64

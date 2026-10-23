@@ -112,11 +112,37 @@ def check(label, cond, detail=""):
     fails += not cond
 
 
+# 3.3.y: a Type change clears the slot's three lines over several silent blocks (MODE = "MC" | chunks << 8 | type),
+# and the type starts, fresh, in the block after the last chunk. Stock's one-shot clear (stubbed above) is not called.
+MODE = 0x38800B14
+
+
+def clearing(done_too=True):
+    m = e.r32(MODE) & 0xFFFFFFFF
+    return m >> 16 == 0x4D43 and (done_too or (m >> 8) & 0xFF != 0xFF)
+
+
+def change(started=True, **kv):
+    """store(**kv), then the blocks of the clear (and with started=True the type's first block). (blocks, their calls)"""
+    store(**kv)
+    seen, n = [], 0
+    while n < 64:
+        block([(0.0, 0.0)] * N)
+        seen += calls
+        n += 1
+        if not clearing() or (not started and not clearing(done_too=False)):
+            break
+    return n, seen
+
+
+def cleared(n, seen):
+    return n >= 10 and "stock" not in seen and not [c for c in seen if c[0] == "clear"]
+
+
 def fresh(**kv):
     """Leave Confetti and come back: the slot clears its memory on a type change."""
-    store(type=0)
-    block([(0.0, 0.0)] * N)
-    store(type=4, **kv)
+    change(type=0)
+    change(started=False, type=4, **kv)
     return run.t
 
 
@@ -180,11 +206,10 @@ check("Delay / Munchi / Motion / Relapse pages: no Confetti controls, same as be
 store(type=0, fb=0, size=5, tone=0, mode=5, density=0, contour=500, space=0)
 block([(0.0, 0.0)] * N)
 check("Type Delay: the stock delay runs", calls == ["stock"], calls)
-store(type=4)
-block([(0.0, 0.0)] * N)
-check("switching to Confetti: stock not called, the three lines cleared", "stock" not in calls and len([c for c in calls if c[0] == "clear"]) == 3, calls)
+n, seen = change(started=False, type=4)
+check(f"switching to Confetti: stock not called, the three lines cleared ({n} blocks)", cleared(n, seen), (n, seen[:4]))
 l, r = block([(0.0, 0.0)] * N)
-check("...not cleared again on the next block, and silence in gives silence out", calls == [] and max(map(abs, l + r)) == 0.0, calls)
+check("...it starts after that, and silence in gives silence out", calls == [] and not clearing() and max(map(abs, l + r)) == 0.0, calls)
 
 
 def peak(x):
@@ -238,15 +263,63 @@ fresh(fb=400, size=77, tone=300, mode=99, density=5000, contour=5000, space=5000
 l, r = run(0.5, busy)
 check("out-of-range settings (mode 99, size 77, 500 %): no crash, finite", all(v == v for v in l + r))
 
+# --- 3.3.y IDLE BYPASS: once the send and the output have been under -90 dBFS for longer than the memory (+1 s), the
+# block is skipped. Measured here: when it goes idle, that the whole memory is under -90 dB by then, what an idle
+# block costs, and that the first block with a send runs again.
+from unicorn import UC_HOOK_CODE as _HOOK
+hits = [0]
+_rev = e.sym["rev4_step"] & ~1                       # called every frame while Confetti runs with Space up
+e.uc.hook_add(_HOOK, lambda *_: hits.__setitem__(0, hits[0] + 1), begin=_rev, end=_rev)
+QUIET = 10 ** (-90 / 20)
+fresh(fb=0, size=5, tone=300, mode=1, density=800, contour=500, space=600)   # Cloud, Space up
+run(1.0, tone(330))
+t_loud, idle_at, blocks = None, None, 0
+while blocks < int(25 * fs / N):
+    hits[0] = 0
+    l, r = block([(0.0, 0.0)] * N)
+    blocks += 1
+    if max(map(abs, l + r)) >= QUIET:
+        t_loud = blocks
+    if hits[0] == 0:
+        idle_at = blocks
+        break
+mem_frames = 192256 * 2
+check(f"Confetti goes idle after the send stops ({idle_at and idle_at * N / fs:.1f} s of silence in)", idle_at is not None, blocks)
+if idle_at:
+    quiet_s = (idle_at - (t_loud or 0)) * N / fs
+    check(f"...only after the output has been under -90 dB for the memory's length + 1 s ({quiet_s:.2f} s >= 9.0 s)",
+          (idle_at - (t_loud or 0)) * N >= mem_frames + 48000 - N, (idle_at, t_loud))
+    peak16 = 0
+    for base in (LIVE, FRZ):
+        raw = bytes(e.uc.mem_read(base, 192256 * 4))
+        peak16 = max(peak16, max(abs(v) for v in struct.unpack(f"<{192256 * 2}h", raw)))
+    check(f"...by which time every sample in the memory is under -90 dB too (peak {peak16} of 32767)", peak16 <= 2, peak16)
+    l, r = block([(0.0, 0.0)] * N)
+    check("an idle block gives exact silence", max(map(abs, l + r)) == 0.0)
+    cnt = [0]
+    hk = e.uc.hook_add(_HOOK, lambda *_: cnt.__setitem__(0, cnt[0] + 1))
+    block([(0.0, 0.0)] * N)
+    e.uc.hook_del(hk)
+    idle_cost = cnt[0]
+    cnt[0] = 0
+    hk = e.uc.hook_add(_HOOK, lambda *_: cnt.__setitem__(0, cnt[0] + 1))
+    hits[0] = 0
+    block([(0.3 * math.sin(i / 7), 0.3 * math.sin(i / 7)) for i in range(N)])
+    e.uc.hook_del(hk)
+    print(f"     idle block: {idle_cost} instructions (the whole slot, incl. FX OUT); with a send: {cnt[0]}")
+    check(f"an idle block costs a small fraction of a running one ({idle_cost} vs {cnt[0]} instructions)",
+          idle_cost * 10 < cnt[0], (idle_cost, cnt[0]))
+    check("the first block with a send runs Confetti again", hits[0] == N, hits[0])
+    l, r = run(1.5, tone(330))
+    check("...and the pieces come back", energy(l[fs // 2:]) > 1.0, energy(l[fs // 2:]))
+
 # --- leaving
-store(type=0)
+n, seen = change(started=False, type=0)
 block([(0.0, 0.0)] * N)
-check("Confetti -> Delay: lines cleared, the stock delay runs", len([c for c in calls if c[0] == "clear"]) == 3 and "stock" in calls, calls)
-store(type=3, scan=0, spread=500, modify=0, feed=0)
-block([(0.0, 0.0)] * N)
-store(type=4, mode=0)
-block([(0.0, 0.0)] * N)
-check("Relapse -> Confetti: lines cleared, Confetti starts clean", len([c for c in calls if c[0] == "clear"]) == 3 and e.r32(STATE) == 0x434E4631, (calls, hex(e.r32(STATE))))
+check(f"Confetti -> Delay: lines cleared ({n} blocks), then the stock delay runs", cleared(n, seen) and calls == ["stock"], (n, seen[:4], calls))
+change(type=3, scan=0, spread=500, modify=0, feed=0)
+n, seen = change(type=4, mode=0)
+check(f"Relapse -> Confetti: lines cleared ({n - 1} blocks), Confetti starts clean", cleared(n - 1, seen) and e.r32(STATE) == 0x434E4632, (n, seen[:4], hex(e.r32(STATE))))
 
 # --- cost
 from unicorn import UC_HOOK_CODE

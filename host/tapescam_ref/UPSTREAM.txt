@@ -1,0 +1,2 @@
+e9ab1ae20aa780da23a9a284d7e95402f51d17e4 Mon Aug 31 22:27:30 2026 +0200
+github.com/charlesvestal/schwung-tapescam src/dsp/tapescam.c (unmodified), MIT

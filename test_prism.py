@@ -123,7 +123,7 @@ e.w32(STACK + 4, 1000)
 e.w32(STACK + 8, 0x080CC3F4)
 e.call("comp_register", 0x24001000, 0xB4, 4, 0x080CC3E8)
 byid = {l[0]: l for l in lists}
-check("Master FX list: Off, VHS, Prism", byid[0x1DB][2] == ["Off", "VHS", "Prism"], byid[0x1DB])
+check("Master FX list: Off, VHS, Prism, TapeScam", byid[0x1DB][2] == ["Off", "VHS", "Prism", "TapeScam"], byid[0x1DB])
 check("no Edit selector any more (3.1.A's, id 0x19c)", 0x19C not in byid)
 check("four effect lists (0x19d..0x1a0), five effects each", [byid[0x19D + b][1:3] for b in range(4)] == [(lab, FX[b]) for b, lab in enumerate(("Drive FX:", "Move FX:", "Space FX:", "Tex FX:"))], [byid[0x19D + b] for b in range(4)])
 check("Time (0x1a7): eight note lengths", byid[0x1A7][2] == ["1/32", "1/16", "1/8T", "1/8", "1/8D", "1/4", "1/4D", "1/2"], byid[0x1A7])
@@ -134,9 +134,9 @@ check("every xml name is unique", len({l[3] for l in lists} | {n[4] for n in num
 e.stub(0x08093EF6, lambda: added.append((e.arg(1), e.arg(2))))
 e.call("comp_defaults", 0x24072000, 0xB4, 1)
 d = dict(added)
-check("defaults: Sweet 30 %, Doubler 0, Tape 0, Cassette 25 %, Tilt flat, Time 1/8, Mix 100 %; 28 global entries added in all (Pre-roll, then the clipper's three)",
-      [d[i] for i in range(0x19D, 0x1A9)] == [1, 0, 1, 2, 300, 0, 0, 250, 500, 300, 3, 1000] and len(added) == 28 and len(d) == 28, added)
-check("stock has 41 global settings, ours add 27: 68 of the store's 96", 41 + len(added) - 1 == 68 and e.uc.mem_read(0x08094820, 2) == bytes.fromhex("6021"))
+check("defaults: Sweet 30 %, Doubler 0, Tape 0, Cassette 25 %, Tilt flat, Time 1/8, Mix 100 %; 41 global entries added in all (TAPESCAM's eleven, Pre-roll, Groove, Theme, then the clipper's three)",
+      [d[i] for i in range(0x19D, 0x1A9)] == [1, 0, 1, 2, 300, 0, 0, 250, 500, 300, 3, 1000] and len(added) == 41 and len(d) == 41 and d.get(0x144) == 0 and d.get(0x145) == 0, added)
+check("stock has 41 global settings, ours add 40: 81 of the store's 96", 41 + len(added) - 1 == 81 and e.uc.mem_read(0x08094820, 2) == bytes.fromhex("6021"))
 
 # --- the page
 LIST, CELL = 0x24074000, 0x24075000
@@ -176,8 +176,8 @@ check("the meter is up before the boot hook runs here (the emulator starts that 
 e.call("master_alloc", 0x24076000, 192000)
 check("master_alloc is the once-a-boot hook: it wipes the meter's state, and the bank 2 verdict with it (cpu_boot)", e.r32(0x2405FFD0) == 0)
 e.meter_up()                                      # ...and the audio task's first wake sets it up again, before any block
-check("master_alloc: the delay's line is allocated as before, then 0x83800 bytes (Prism's 0x56800 + 0x1000 for the LFOs + 0x6000 for the USB audio ring + 0x4000 for the S950 filters + 0x22000 for the pad inserts + 0x100 for the clipper), pointer + check word stored",
-      allocs == [("line", 0x24076000, 192000), ("perm", 0x83900)] and e.r32(PMEM) & 0xFFFFFFFF == PRISM and e.r32(PCHECK) & 0xFFFFFFFF == PRISM ^ 0x5052534D, (allocs, hex(e.r32(PMEM)), hex(e.r32(PCHECK))))
+check("master_alloc: the delay's line is allocated as before, then 0x94900 bytes (Prism's 0x56800 + 0x1000 for the LFOs + 0x6000 for the USB audio ring + 0x4000 for the S950 filters + 0x22000 for the pad inserts + 0x100 for the clipper + 0x10000 for the EQ screen's RTA + 0x1000 for the filter's switch crossfade), pointer + check word stored",
+      allocs == [("line", 0x24076000, 192000), ("perm", 0x94900)] and e.r32(PMEM) & 0xFFFFFFFF == PRISM and e.r32(PCHECK) & 0xFFFFFFFF == PRISM ^ 0x5052534D, (allocs, hex(e.r32(PMEM)), hex(e.r32(PCHECK))))
 check("the patched call in the delay constructor goes to master_alloc", e.uc.mem_read(0x0805462A, 4) != bytes.fromhex("16f029fa") and e.sym["master_alloc"] != 0)
 e.w32(PCHECK, 0x12345678)
 l, r = block(x)

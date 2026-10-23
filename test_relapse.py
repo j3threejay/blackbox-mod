@@ -110,11 +110,37 @@ def check(label, cond, detail=""):
     fails += not cond
 
 
+# 3.3.y: a Type change clears the slot's three lines over several silent blocks (MODE = "MC" | chunks << 8 | type),
+# and the type starts, fresh, in the block after the last chunk. Stock's one-shot clear (stubbed above) is not called.
+MODE = 0x38800B14
+
+
+def clearing(done_too=True):
+    m = e.r32(MODE) & 0xFFFFFFFF
+    return m >> 16 == 0x4D43 and (done_too or (m >> 8) & 0xFF != 0xFF)
+
+
+def change(started=True, **kv):
+    """store(**kv), then the blocks of the clear (and with started=True the type's first block). (blocks, their calls)"""
+    store(**kv)
+    seen, n = [], 0
+    while n < 64:
+        block([(0.0, 0.0)] * N)
+        seen += calls
+        n += 1
+        if not clearing() or (not started and not clearing(done_too=False)):
+            break
+    return n, seen
+
+
+def cleared(n, seen):
+    return n >= 10 and "stock" not in seen and not [c for c in seen if c[0] == "clear"]
+
+
 def fresh(**kv):
     """Leave Relapse and come back: the slot clears its memory on a type change."""
-    store(type=0)
-    block([(0.0, 0.0)] * N)
-    store(type=3, **kv)
+    change(type=0)
+    change(started=False, type=3, **kv)
     return run.t
 
 
@@ -176,11 +202,10 @@ check("the second Type's page (Munchi, or Motion): no Relapse controls", page(1)
 store(type=0, fb=500, size=5, recall=0, reach=500, twist=0, tone=0, feed=0)
 block([(0.0, 0.0)] * N)
 check("Type Delay: the stock delay runs", calls == ["stock"], calls)
-store(type=3)
+n, seen = change(started=False, type=3)
+check(f"switching to Relapse: stock not called, the three lines cleared ({n} blocks)", cleared(n, seen), (n, seen[:4]))
 block([(0.0, 0.0)] * N)
-check("switching to Relapse: stock not called, the three lines cleared", "stock" not in calls and len([c for c in calls if c[0] == "clear"]) == 3, calls)
-block([(0.0, 0.0)] * N)
-check("...and not cleared again on the next block", calls == [], calls)
+check("...it starts, and is not cleared again", calls == [] and not clearing(), calls)
 
 # --- a plain echo at Recall 0
 l, r = impulse(2.2)
@@ -332,15 +357,15 @@ block([noise(i) for i in range(N)])
 e.uc.hook_del(hk)
 print(f"     cost: {cnt[0]} instructions per 128-frame block, {cnt[0] / N:.0f} per frame")
 
-store(type=1)
+n, seen = change(started=False, type=1)
 block([(0.0, 0.0)] * N)
 if ENGINE:
-    check("Relapse -> Munchi: lines cleared, Munchi starts", len([c for c in calls if c[0] == "clear"]) == 3 and "stock" not in calls, calls)
-    store(type=0)
+    check(f"Relapse -> Munchi: lines cleared ({n} blocks), Munchi starts", cleared(n, seen) and "stock" not in calls and not clearing(), (n, seen[:4], calls))
+    n, seen = change(started=False, type=0)
     block([(0.0, 0.0)] * N)
-    check("-> Delay: lines cleared, stock runs", len([c for c in calls if c[0] == "clear"]) == 3 and calls[-1] == "stock", calls)
+    check(f"-> Delay: lines cleared ({n} blocks), stock runs", cleared(n, seen) and calls == ["stock"], (n, seen[:4], calls))
 else:
-    check("Relapse -> the second Type (engine left out): lines cleared, stock runs", len([c for c in calls if c[0] == "clear"]) == 3 and calls[-1] == "stock", calls)
+    check(f"Relapse -> the second Type (engine left out): lines cleared ({n} blocks), stock runs", cleared(n, seen) and calls == ["stock"], (n, seen[:4], calls))
     store(type=0)
     block([(0.0, 0.0)] * N)
     check("-> Delay: nothing to clear, stock runs", calls == ["stock"], calls)
@@ -353,15 +378,14 @@ MODE_RAW = 0x38800B14
 e.w32(MODE_RAW, 3)                        # a bare type number, as every build before the epoch wrote it
 store(type=3, fb=500, size=5, recall=0, reach=500, twist=0, tone=0, feed=0)
 calls.clear()
-block([(0.0, 0.0)] * N)
-cleared = len([c for c in calls if c[0] == "clear"])
-check("a MODE from the old numbering is treated as unknown, so the lines are cleared instead of reused",
-      cleared == 3, f"{cleared} clears, calls={calls[:4]}")
+n, seen = change(type=3)
+check(f"a MODE from the old numbering is treated as unknown, so the lines are cleared instead of reused ({n - 1} blocks)",
+      cleared(n - 1, seen), f"{n} blocks, calls={seen[:4]}")
 check("...and the epoch is stamped in, so the next block sees it as current",
       (e.r32(MODE_RAW) >> 16) == 0x4D32, hex(e.r32(MODE_RAW)))
 calls.clear()
 block([(0.0, 0.0)] * N)
-check("...with no further clearing once it matches", len([c for c in calls if c[0] == "clear"]) == 0, calls)
+check("...with no further clearing once it matches", len([c for c in calls if c[0] == "clear"]) == 0 and not clearing(), calls)
 
 print(f"\n{fails} failure(s)")
 sys.exit(1 if fails else 0)

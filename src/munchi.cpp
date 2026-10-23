@@ -61,10 +61,20 @@ struct confetti_params {
 };
 int b2_live(void);               /* cpu.c: is bank 2, where confetti_block lives, the matching payload */
 int b2_present(void);            /* cpu.c: the same question for the Type list's names, asked before the meter is up */
+void fxout_register(void *table);                         /* fxout.c: the FX OUT page's Level + Low Cut */
+void fxout_defaults(void *store);
+void fxout_run(int which, const void *store, float *l, float *r, int n);
+int fxout_list(void *list, const void *store, int which);
+void fxout_before_build(void);
+void fxout_after_build(uint8_t *screen);
+int fxout_tap(const uint16_t *msg);
 void confetti_block(void *state, float *rev, int16_t *a, int16_t *b, uint32_t half, const struct confetti_params *p, float bpm,
                  const float *il, const float *ir, float *ol, float *orr, int n, int fresh);
 void relapse_block(uint8_t *state, int16_t *a, int16_t *b, uint32_t half, const void *store, float bpm,
                  const float *il, const float *ir, float *ol, float *orr, int n, int fresh);
+void *munchi_ready(uint8_t *obj, int fresh);              /* munchi_dsp.cpp (bank 2): the engine */
+void munchi_run(void *state, const void *store, float bpm, const float *il, const float *ir, int n, float **wl,
+                float **wr);
 }
 
 typedef int (*process_fn)(uint8_t *obj, uint32_t *bufs);
@@ -149,10 +159,10 @@ typedef void (*list_add_fn)(void *list, int param, int value);
 enum { ALG_DELAY, ALG_MUNCHI, ALG_MOTION, ALG_RELAPSE, ALG_CONFETTI, ALGS };
 #ifndef MUNCHI_OFF
 static const char *const type_names[ALGS] = {"Delay", "Munchi", "Motion", "Relapse", "Confetti"};
-static const char *const type_names_none[ALGS] = {"Delay", "Munchi", "Motion", "Relapse", "---"};   /* no bank 2 payload */
+static const char *const type_names_none[ALGS] = {"Delay", "---", "---", "---", "---"};   /* no bank 2 payload (Munchi's engine too since 3.3.y) */
 #else
 static const char *const type_names[ALGS] = {"Delay", "---", "Motion", "Relapse", "Confetti"};
-static const char *const type_names_none[ALGS] = {"Delay", "---", "Motion", "Relapse", "---"};
+static const char *const type_names_none[ALGS] = {"Delay", "---", "---", "---", "---"};
 #endif
 /* Confetti (confetti.c), 3.1.z: Mode / Density / Contour / Space; it shares Relapse's Size and Tone and the delay's Feedback */
 #define P_CF_MODE   0x1ec
@@ -176,9 +186,7 @@ static const char *const rl_twist_names[5] = {"Off", "Reverse", "Oct Dn", "Oct U
 #define RELAPSE_OUT 0x1000                                  /* line 2: Relapse's two wet blocks sit after its state */
 static const char *const freeze_names[2] = {"Off", "On"};
 static const char *const clock_names[3] = {"1x", "1/2x", "2x"};
-static const float clock_mul[3] = {1.f, .5f, 2.f};
 static const char *const width_names[4] = {"TEMPO", "Mono", "Wide", "Huge"};
-static const float width_mul[4] = {1.f, 0.f, 2.5f, 5.f};
 static const char *const duck_names[4] = {"Auto", "Off", "Light", "Heavy"};
 
 /*
@@ -214,6 +222,18 @@ static inline uint32_t stack_now(void)
 #define MODE_UNKNOWN 0xffu
 #define MODE_GET ((MODE_RAW >> 16) == MODE_EPOCH ? (MODE_RAW & 0xffu) : MODE_UNKNOWN)
 #define MODE_SET(a) (MODE_RAW = ((uint32_t)MODE_EPOCH << 16) | ((uint32_t)(a) & 0xffu))
+/*
+ * 3.3.y: a type change clears the three lines over several blocks instead of in one. All three at once is ~1.9 MB of
+ * SDRAM, 4.5 ms in a 2.67 ms block (NOTES: the fx1 spikes of up to 416 % in the profiler reading, 10-20). While the
+ * clear runs MODE_RAW holds CLR_EPOCH | chunks done << 8 | the type it is for, the slot gives silence, and the type
+ * starts (fresh) in the block AFTER the last chunk (CLR_DONE), so its own start-up never shares a block with clearing.
+ * CLR_WORDS a block: ~0.3 ms on the unit (stock's clear ran at ~9 ns a word), about what the slot's own DSP costs, so
+ * 15 blocks + 1 = ~43 ms of silence after a change. A change during the clear carries on with it (every type wants
+ * all three lines clear); a reset in the middle of one finishes it on the next boot.
+ */
+#define CLR_EPOCH 0x4d43u                                 /* "MC" */
+#define CLR_WORDS 32768u                                  /* 128 KB a block */
+#define CLR_DONE  0xffu                                   /* all chunks done: the next block starts the type */
 /* motion.c's state: the gap behind the USB-MIDI queue (ends 0x38800988), ahead of master.c's UI at 0x38800b1c */
 #define MOTION_ST ((struct motion_state *)0x38800990u)
 #ifdef MUNCHI_OFF
@@ -221,27 +241,8 @@ static inline uint32_t stack_now(void)
 #else
 #define MUNCHI_BUILT 1
 #endif
-#define MAGIC 0x4d554e31u                                 /* "MUN1" */
 #define MAXN 128
 
-#ifndef MUNCHI_OFF
-struct Munchi {
-    uint32_t magic;
-    mbuf_t *live, *frozen;
-    granularDelay delay;
-    daisysp::Reverb reverb;
-    SimpleCompressor comp;
-    clockManager clock;
-    float wet_amt, reverb_amt, reverb_amt_target, reverb_boost, reverb_boost_target;
-    float pulse_phase;
-    long pulses;
-    int last_wand, last_random, last_feedback, last_freeze, last_duck;
-    float clock_mul;
-    float wl[MAXN], wr[MAXN];
-};
-
-static_assert(sizeof(Munchi) <= 96000 * 4, "Munchi's state must fit the stock delay's 2 s line");
-#endif
 
 static inline void *line_ptr(uint8_t *obj, int line)
 {
@@ -291,6 +292,7 @@ void munchi_register(void *table, int param, const char *label, const char *cons
     fw_register_list(table, P_MO_KIND, "Motion:", motion_names, MOTION_TYPES, "motionkind");
     fw_register_num(table, P_MO_RATE, TYPE_PCT, "Rate:", 0, 1000, "motionrate");
     fw_register_num(table, P_MO_DEPTH, TYPE_PCT, "Depth:", 0, 1000, "motiondepth");
+    fxout_register(table);                  /* Level + Low Cut, for both effects (fxout.c) */
 }
 
 /* Replaces the delay cell's first default, Time 400 (bl @0x0809444a): Type first. */
@@ -323,6 +325,7 @@ void munchi_defaults_last(void *store, int param, int value)
     fw_store_add(store, P_MO_KIND, MOTION_TREM);
     fw_store_add(store, P_MO_RATE, 400);
     fw_store_add(store, P_MO_DEPTH, 600);
+    fxout_defaults(store);
 }
 
 /*
@@ -339,6 +342,8 @@ void munchi_list(void *list, void *store)
     fw_list_fill(list, store);
     DROP_GUI(19, 0);                        /* GUI: the fill returned */
     int cell = (*(cell_type_fn *)*(uint8_t **)store)(store);
+    if (fxout_list(list, store, cell == CELL_DELAY ? 1 : cell == CELL_REVERB ? 2 : 0))
+        return;                             /* the OUT page: Level, Low Cut (fxout.c) */
     if (cell == CELL_REVERB) {               /* Room's four settings only when Type is Room */
         if (fw_setting(store, P_FX2_TYPE) != ROOM)
             for (unsigned id = P_ROOM_FIRST; id <= P_ROOM_LAST; id++)
@@ -385,123 +390,6 @@ void munchi_list(void *list, void *store)
     DROP_GUI(21, type);                     /* GUI: the page for this type is built and we are leaving */
 }
 
-#ifndef MUNCHI_OFF
-static void zero(void *p, uint32_t bytes)
-{
-    uint32_t *w = (uint32_t *)p;
-    for (uint32_t i = 0; i < bytes / 4; i++)
-        w[i] = 0;
-}
-
-static Munchi *start(uint8_t *obj)
-{
-    void *live = line_ptr(obj, LINE_LIVE), *frozen = line_ptr(obj, LINE_FREEZE), *st = line_ptr(obj, LINE_STATE);
-    if (!live || !frozen || !st || line_floats(obj, LINE_STATE) * 4 < sizeof(Munchi))
-        return nullptr;
-    uint32_t frames = line_floats(obj, LINE_LIVE);              /* floats -> 16-bit stereo frames: same count */
-    if (line_floats(obj, LINE_FREEZE) < frames)
-        frames = line_floats(obj, LINE_FREEZE);
-    zero(live, frames * 4);
-    zero(frozen, frames * 4);
-    zero(st, sizeof(Munchi));
-    Munchi *m = new (st) Munchi();                              /* TEMPO's classes expect zeroed memory */
-    m->live = (mbuf_t *)live;
-    m->frozen = (mbuf_t *)frozen;
-    m->reverb.Init(48000.f);
-    m->reverb.SetAmount(0.f);
-    m->reverb.SetInputGain(.3f);
-    m->reverb.SetLowpass(1.f);
-    m->comp.Init();
-    m->delay.Init(m->live, m->frozen, frames, &m->clock, false);
-    m->wet_amt = 1.f;
-    m->last_wand = m->last_random = m->last_feedback = m->last_freeze = m->last_duck = -1;
-    m->clock_mul = 1.f;
-    if (!MUNCHI_RNG)
-        MUNCHI_RNG = 0x2545f491u;
-    m->magic = MAGIC;
-    return m;
-}
-
-/* FxEngine::setGranularMain / setGranularFeedback, as Munchi's wrapper has them */
-static void set_main(Munchi *m, float val)
-{
-    m->delay.setMainControl(val);
-    if (val > .55f) {
-        float norm = (val - .55f) / (1.f - .55f);
-        float r = chompi::fast_sqrt(norm);                     /* powf(norm, .5f) */
-        m->reverb_amt_target = .25f + .65f * r;
-        m->reverb_boost_target = val > .6f ? .3f : 0.f;
-    } else {
-        m->reverb_amt_target = 0.f;
-        m->reverb_boost_target = 0.f;
-    }
-}
-
-static void controls(Munchi *m, const void *store)
-{
-    int wand = fw_setting(store, P_WAND), random = fw_setting(store, P_RANDOM);
-    int feedback = fw_setting(store, P_FEEDBK), freeze = fw_setting(store, P_FREEZE) != 0;
-    unsigned clock = (unsigned)fw_setting(store, P_CLOCK), width = (unsigned)fw_setting(store, P_WIDTH);
-    int duck = fw_setting(store, P_DUCK);
-    m->clock_mul = clock_mul[clock < 3 ? clock : 0];
-    MUNCHI_SPREAD = width_mul[width < 4 ? width : 0];
-    if (wand != m->last_wand)
-        set_main(m, daisysp::fclamp(wand * .001f, 0.f, 1.f));
-    if (random != m->last_random)
-        m->delay.setAltControl(daisysp::fclamp(random * .001f, 0.f, 1.f));
-    if (feedback != m->last_feedback || duck != m->last_duck) {
-        float v = daisysp::fclamp(feedback * .001f, 0.f, 1.f);
-        m->delay.setFeedback(v);
-        float amount = duck == 1 ? 0.f : duck == 2 ? .5f : duck == 3 ? 1.f : (v > .6f ? (v - .6f) / (1.f - .6f) : 0.f);
-        m->comp.setAmount(amount);
-    }
-    if (m->last_freeze >= 0 && freeze != m->last_freeze && freeze != m->delay.getBufferLock())
-        m->delay.toggleBufferLock();
-    m->last_wand = wand;
-    m->last_random = random;
-    m->last_feedback = feedback;
-    m->last_freeze = freeze;
-    m->last_duck = duck;
-}
-
-static void run_clock(Munchi *m, float bpm, int frames)
-{
-    if (!(bpm > 0.f))
-        bpm = 120.f;
-    bpm *= m->clock_mul;            /* note lengths that would not fit the 4 s buffer are clamped in granularDelay.h */
-    m->clock.setBpm(bpm);
-    m->pulse_phase += bpm * (24.f / 60.f) * (float)frames * (1.f / 48000.f);
-    while (m->pulse_phase >= 1.f) {
-        m->pulse_phase -= 1.f;
-        m->delay.setClockPulse();
-        if (++m->pulses % 12 == 0)
-            m->delay.setClockEdge();
-    }
-}
-
-static inline void process48(Munchi *m, float xl, float xr, float *ol, float *orr)
-{
-    fonepole(m->wet_amt, 1.f, .001f);
-    fonepole(m->reverb_amt, m->reverb_amt_target, .001f);
-    fonepole(m->reverb_boost, m->reverb_boost_target, .001f);
-    float wl = xl * m->wet_amt, wr = xr * m->wet_amt;
-    float dl = xl, dr = xr;                         /* the ducking sidechain: the send itself */
-    float yl = 0.f, yr = 0.f;
-    m->delay.write(wl, wr);
-    m->delay.read(&yl, &yr);
-    m->reverb.SetAmount(m->reverb_amt * m->reverb_amt * .8f);
-    m->reverb.SetTime(m->reverb_amt);
-    m->reverb.SetLowpass(m->reverb_amt * .55f + .4f);
-    m->reverb.SetDiffusion(m->reverb_amt * .6f);
-    yl += wl * m->reverb_boost;
-    yr += wr * m->reverb_boost;
-    m->reverb.Process(&yl, &yr);
-    m->comp.Process(&yl, &yr, &dl, &dr);
-    *ol = yl;
-    *orr = yr;
-}
-
-#endif
 
 /* the send in (through the stock gate) and the block length */
 static int slot_in(uint8_t *obj, uint32_t *bufs, void **bus, float **il, float **ir)
@@ -538,8 +426,50 @@ static void slot_out(uint8_t *obj, void *bus, const float *wl, const float *wr, 
     }
 }
 
-/* Replaces the delay process call in the delay's vtable wrapper (bl FUN_080548c8 @0x08054f3a). */
-int munchi_process(uint8_t *obj, uint32_t *bufs)
+/* One chunk of the type-change clear: words [k * CLR_WORDS, (k + 1) * CLR_WORDS) of the three lines taken end to end.
+   Returns 1 when that was the last; then the lines' positions are reset as stock's clear (FUN_0806aac0) does. */
+static int clear_chunk(uint8_t *obj, uint32_t k)
+{
+    static const uint8_t lines[3] = {LINE_LIVE, LINE_STATE, LINE_FREEZE};
+    uint32_t from = k * CLR_WORDS, to = from + CLR_WORDS, base = 0;
+    for (int i = 0; i < 3; i++) {
+        uint32_t *line = (uint32_t *)(obj + lines[i]);
+        uint32_t *w = (uint32_t *)line[0], words = w ? line[5] : 0;    /* +0x14: floats, the 0x100 guard included */
+        uint32_t a = from > base ? from - base : 0, b = to - base < words ? to - base : words;
+        if (to > base && b > a) {
+            uint32_t *p = w + a, *e = w + b;
+            for (; p + 4 <= e; p += 4)
+                p[0] = p[1] = p[2] = p[3] = 0;
+            for (; p < e; p++)
+                *p = 0;
+        }
+        base += words;
+    }
+    if (to < base)
+        return 0;
+    for (int i = 0; i < 3; i++) {
+        uint32_t *line = (uint32_t *)(obj + lines[i]);
+        line[1] = line[4];
+        line[2] = line[3] = 0;
+    }
+    return 1;
+}
+
+/* The slot gives nothing this block (a clear is under way): the send is taken as usual, the bus carries no wet. */
+static void slot_quiet(uint8_t *obj, uint32_t *bufs)
+{
+    void *bus;
+    float *il, *ir, *ol = nullptr, *orr = nullptr;
+    int n = slot_in(obj, bufs, &bus, &il, &ir);
+    fw_ptrs(bus, &ol, &orr);
+    fw_setlen(bus, n);
+    if (!obj[OBJ_MIXADD])
+        for (int i = 0; i < n; i++)
+            ol[i] = orr[i] = 0.f;
+}
+
+/* The delay slot itself: the selected Type, or the stock delay. */
+static int delay_slot(uint8_t *obj, uint32_t *bufs)
 {
     unsigned row = (*(uint32_t *)(obj + OBJ_ID) >> 8) & 0xff;
     const void *store = (const void *)(APP_FX + (row < 5 ? row : 0) * 0x18u);
@@ -560,8 +490,9 @@ int munchi_process(uint8_t *obj, uint32_t *bufs)
      * quarter speed (103 blocks a second on the test unit, button lights stuttering) for as long as bank 2 stayed off
      * with Confetti selected - which is the state every bank 2 rewrite passes through.
      */
-    if (alg == ALG_CONFETTI && !b2_live())
-        alg = ALG_DELAY;
+    if ((alg == ALG_CONFETTI || alg == ALG_RELAPSE || alg == ALG_MOTION || alg == ALG_MUNCHI) && !b2_live())
+        alg = ALG_DELAY;                /* 3.3.o: Relapse's and Motion's DSP moved up to bank 2 beside Confetti's;
+                                           3.3.y: Munchi's engine too (munchi_dsp.cpp) */
     if (alg == ALG_MOTION) {                    /* Motion runs the stock delay, so it keeps stock's lines and MODE */
         alg = ALG_DELAY;
         motion_kind = fw_setting(store, P_MO_KIND);
@@ -577,14 +508,16 @@ int munchi_process(uint8_t *obj, uint32_t *bufs)
     const unsigned raw = MODE_GET;
     const unsigned mode_was = (raw == MODE_UNKNOWN) ? (unsigned)ALG_DELAY : raw;
     int fresh = mode_was != (unsigned)alg;
-    if (fresh && (mode_was != (unsigned)ALG_DELAY || alg != ALG_DELAY)) {
-        DROP(2, alg);                   /* about to clear the three lines - the suspect */
-        fw_line_clear(obj + LINE_LIVE);             /* the three lines change hands: nothing of the old type stays */
-        DROP(3, alg);
-        fw_line_clear(obj + LINE_STATE);
-        DROP(4, alg);
-        fw_line_clear(obj + LINE_FREEZE);
-        DROP(5, alg);                   /* all three cleared */
+    uint32_t clr = MODE_RAW, k = (clr >> 16) == CLR_EPOCH ? (clr >> 8) & 0xffu : 0;
+    if ((clr >> 16) == CLR_EPOCH && k == CLR_DONE) {
+        fresh = 1;                      /* the lines were cleared in the blocks before this one: start the type */
+    } else if ((clr >> 16) == CLR_EPOCH || fresh) {   /* the three lines change hands: nothing of the old type stays */
+        DROP(2, alg);                   /* clearing a chunk of the three lines */
+        int last = clear_chunk(obj, k) || k + 1 >= CLR_DONE;
+        MODE_RAW = ((uint32_t)CLR_EPOCH << 16) | ((last ? CLR_DONE : k + 1) << 8) | ((uint32_t)alg & 0xffu);
+        DROP(last ? 5 : 3, alg);        /* 5: all three cleared */
+        slot_quiet(obj, bufs);
+        return 1;
     }
     void *bus;
     float *il, *ir;
@@ -632,19 +565,14 @@ int munchi_process(uint8_t *obj, uint32_t *bufs)
     }
 #ifndef MUNCHI_OFF
     if (alg == ALG_MUNCHI) {
-        Munchi *m = (Munchi *)line_ptr(obj, LINE_STATE);
-        if (fresh || !m || m->magic != MAGIC || m->live != line_ptr(obj, LINE_LIVE) ||
-            m->frozen != line_ptr(obj, LINE_FREEZE))
-            m = start(obj);
+        void *m = munchi_ready(obj, fresh);
         DROP(7, alg);                   /* munchi branch */
         MODE_SET(ALG_MUNCHI);
         if (m) {
             int mn2 = slot_in(obj, bufs, &bus, &il, &ir);
-            controls(m, store);
-            run_clock(m, *(float *)((uint8_t *)bufs[0] + 0x18), mn2);
-            for (int i = 0; i < mn2; i++)
-                process48(m, il[i], ir[i], &m->wl[i], &m->wr[i]);
-            slot_out(obj, bus, m->wl, m->wr, mn2);
+            float *wl, *wr;
+            munchi_run(m, store, *(float *)((uint8_t *)bufs[0] + 0x18), il, ir, mn2, &wl, &wr);
+            slot_out(obj, bus, wl, wr, mn2);
             return 1;
         }
         return fw_process(obj, bufs);
@@ -685,6 +613,31 @@ int munchi_process(uint8_t *obj, uint32_t *bufs)
     return ok;
 }
 
+/* Replaces the delay process call in the delay's vtable wrapper (bl FUN_080548c8 @0x08054f3a): the slot, whatever
+   its Type, then the FX OUT page's Level + Low Cut on the slot's bus, which holds the wet and nothing else by now. */
+#ifdef CPU_PROF
+#define munchi_process munchi_process_body /* prof.c times it under the hooked name */
+#endif
+int munchi_process(uint8_t *obj, uint32_t *bufs)
+{
+    int rc = delay_slot(obj, bufs);
+    unsigned row = (*(uint32_t *)(obj + OBJ_ID) >> 8) & 0xff;
+    if (row >= 5)
+        return rc;
+    chan_fn chan = *(chan_fn *)(*(uint8_t **)obj + 0x54);
+    int ch = (uint32_t)chan == FW_CHAN_DEFAULT ? *(uint16_t *)(obj + OBJ_CHAN) : chan(obj);
+    void *bus = fw_bus(bufs, ch);
+    int n = bus ? fw_len(bus) : 0;
+    if (n > MAXN)
+        n = MAXN;
+    float *l = nullptr, *r = nullptr;
+    if (n > 0)
+        fw_ptrs(bus, &l, &r);
+    if (l)
+        fxout_run(0, (const void *)(APP_FX + row * 0x18u), l, r, n);
+    return rc;
+}
+
 /*
  * The FX knob screen's message handler (vtable 0x080f07e0 +0x10 = FUN_080ab900). Message 0x32 updates one knob's
  * value in place; message 0x66 rebuilds the whole page from the settings list. The page only rebuilt on some other
@@ -702,7 +655,12 @@ typedef void (*screen_msg_fn)(uint8_t *screen, const uint16_t *msg);
 
 void fx_screen_msg(uint8_t *screen, const uint16_t *msg)
 {
+    const int build = msg && (msg[0] == 0x66 || msg[0] == 0x67);
+    if (build)
+        fxout_before_build();
     fw_screen_msg(screen, msg);
+    if (build)
+        fxout_after_build(screen);           /* the OUT tab, or the empty tab back on a page that is not an effect's */
     if (!msg || msg[0] != 0x32)
         return;
     uint8_t *view = screen + 0x450;
@@ -715,7 +673,9 @@ void fx_screen_msg(uint8_t *screen, const uint16_t *msg)
                                             insert.c) also show per-type knobs */
     uint16_t rebuild[16] = {0x66};
     DROP_GUI(30, id & 0xffu);                /* GUI: into stock's handler a second time, from inside its own 0x32 */
+    fxout_before_build();
     fw_screen_msg(screen, rebuild);
+    fxout_after_build(screen);
     DROP_GUI(31, id & 0xffu);                /* GUI: it came back out */
     /* The rebuild hides the slots the new type does not use, but hidden widgets are only skipped, not erased: going
      * Room -> Plate left four bare knob arcs on the right (the 3.1.n photo). Ask for the full clear + redraw the GUI
@@ -725,6 +685,28 @@ void fx_screen_msg(uint8_t *screen, const uint16_t *msg)
         gui[GUI_HOLDER + 0x38] = 1;
         gui[GUI_HOLDER + 0x39] = 1;
     }
+}
+
+/*
+ * The knob screen's handler for what its children send up (vtable 0x080f07bc +0x30 = FUN_080ab9b4): a tab tap arrives
+ * as message 1 with the tab's id at +0xc, which stock turns into an app message of that type. A tap on the OUT tab
+ * (fxout.c) flips the effect between its knobs and its OUT page instead, and rebuilds the page. UI task.
+ */
+typedef int (*child_msg_fn)(uint8_t *screen, const uint16_t *msg);
+#define fw_screen_child ((child_msg_fn)FN(0x080ab9b4))
+
+int fx_screen_child(uint8_t *screen, const uint16_t *msg)
+{
+    if (!fxout_tap(msg))
+        return fw_screen_child(screen, msg);
+    uint16_t rebuild[16] = {0x66};
+    fx_screen_msg(screen, rebuild);           /* a rebuild keeps the page; only an open drops it (fxout_open) */
+    uint8_t *gui = *(uint8_t *volatile *)GUI_PTR;
+    if (gui) {                                /* the full clear + redraw: the two pages have different knob counts */
+        gui[GUI_HOLDER + 0x38] = 1;
+        gui[GUI_HOLDER + 0x39] = 1;
+    }
+    return 0;
 }
 
 }  /* extern "C" */

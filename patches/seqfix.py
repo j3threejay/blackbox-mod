@@ -14,3 +14,10 @@ PATCHES = [
     # the one call to the player: record "now" per sequence on the way in
     (0x0805D9A4, bl(0x0805D9A4, 0x0805D1D8), bl(0x0805D9A4, sym["seq_play"])),
 ]
+
+# Sequence mode switch (src/seqmode.c): switching back across PADS restores the notes instead of clearing them
+PATCHES += [
+    (0x0809FEF6, bl(0x0809FEF6, 0x08098254), bl(0x0809FEF6, sym["seqmode_cross_thunk"])),
+    (0x0809FF08, bl(0x0809FF08, 0x08063CC0), bl(0x0809FF08, sym["seqmode_clear"])),
+] + [(at, bl(at, 0x0809ACEC), bl(at, sym["seqmode_forget"]))
+     for at in (0x0809E178, 0x0809E1FA, 0x0809E25E, 0x0809E896, 0x0809E954)]   # preset load / new: forget it

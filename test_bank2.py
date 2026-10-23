@@ -62,8 +62,25 @@ else:
 # install. A branch from one into the other is the crash that hit every build from 3.2.m to 3.2.r. The reverb that
 # Confetti and Prism share used to be the one such call (through a jump pinned at 0x080f8b40); it is in bank 2 now.
 md = Cs(CS_ARCH_ARM, CS_MODE_THUMB)
+# DATA in bank 2 is not code: the boot graphic (splash_img.c, 3.3.t) is ~21 KB of run-length bytes that decode as
+# anything, branches included. Its symbols' ranges (nm -S) are skipped by the scan and the literal check.
+data = []
+for line in subprocess.run(["arm-none-eabi-nm", "-S", "out/cave.elf"], capture_output=True, text=True, check=True).stdout.splitlines():
+    p = line.split()
+    if len(p) == 4 and p[3] in ("splash_clut", "splash_colours", "splash_rle", "splash_rle_len"):   # .bank2 marks them T
+        data.append((int(p[0], 16) - B2, int(p[0], 16) - B2 + int(p[1], 16)))
+
+
+def in_data(o):
+    return any(lo <= o < hi for lo, hi in data)
+
+
+check("the boot graphic's tables are found and sit in bank 2", len(data) >= 4 and all(0 < lo < hi <= len(deployed) for lo, hi in data), data)
 leaving, outside, off = {}, {}, 16
 while off < len(deployed) - 4:
+    if in_data(off):
+        off += 2
+        continue
     h1, h2 = struct.unpack_from("<HH", deployed, off)
     if (h1 & 0xF800) == 0xF000 and (h2 & 0xD000) in (0xD000, 0x9000, 0xC000):
         ins = list(md.disasm(deployed[off:off + 4], B2 + off, 1))
@@ -82,7 +99,7 @@ check("...and none leaves bank 2 at all: it is leaf DSP, calling only itself", n
       {hex(t): [hex(x) for x in sites] for t, sites in outside.items()})
 check("the reverb is in bank 2 beside its two callers", B2 <= funcs_all.get("rev4_step", 0) < B2 + len(deployed), hex(funcs_all.get("rev4_step", 0)))
 check("the old pinned jump is gone from the cave", "rev4_step_impl" not in funcs_all and funcs.get(OLD_PIN) != "rev4_step", funcs.get(OLD_PIN))
-lits = [struct.unpack_from("<I", deployed, o)[0] for o in range(16, len(deployed) - 3, 4)]
+lits = [struct.unpack_from("<I", deployed, o)[0] for o in range(16, len(deployed) - 3, 4) if not in_data(o)]
 check("bank 2 holds no data pointers into the cave", not [v for v in lits if CAVE_LO <= (v & ~1) < CAVE_HI])
 
 # --- 3. the crash itself: Confetti's first block, on the real pair
@@ -131,8 +148,8 @@ e.uc.hook_add(UC_HOOK_CODE, lambda *_: hits.__setitem__("impl", hits["impl"] + 1
 e.uc.hook_add(UC_HOOK_CODE, lambda *_: hits.__setitem__("relapse", hits["relapse"] + 1), begin=relapse, end=relapse + 1700)
 err = None
 try:
-    for _ in range(4):                                     # the first block is the one that died
-        e.call("munchi_process", OBJ, BUFS, count=200_000_000)
+    for _ in range(20):                                    # 3.3.y: the type change clears the lines over ~15 blocks,
+        e.call("munchi_process", OBJ, BUFS, count=200_000_000)   # then Confetti's first blocks (the one that died)
 except Exception as exc:
     err = exc
 check("CONFETTI'S FIRST BLOCKS RUN: the crash on the test unit does not happen", err is None, str(err))
@@ -173,13 +190,16 @@ e2.stub(0x0804F270, lambda: e2.w32(e2.arg(2), IN))
 e2.stub(0x0805F37C, value=BUS)
 e2.w32(0x38800B14, (0x4D32 << 16) | 1)                                 # Munchi ran last
 per_block = []
-for _ in range(5):
+for _ in range(24):
     events.clear()
     e2.call("munchi_process", OBJ, BUFS, count=200_000_000)
-    per_block.append((events.count("clear"), events.count("stock")))
-check(f"bank 2 off + Confetti selected: the lines are cleared ONCE, then left alone {[c for c, _ in per_block]}",
-      [c for c, _ in per_block] == [3, 0, 0, 0, 0], per_block)
-check("...and the stock delay runs every block in its place", all(st == 1 for _, st in per_block), per_block)
+    per_block.append((events.count("clear"), events.count("stock"), (e2.r32(0x38800B14) & 0xFFFFFFFF) >> 16 == 0x4D43))
+clr = [c for _, _, c in per_block]
+k = clr.index(False) if False in clr else len(clr)
+check(f"bank 2 off + Confetti selected: the lines are cleared ONCE (by the slot, over {k} blocks: 3.3.y), then left alone",
+      10 <= k <= 20 and not any(clr[k:]) and all(c == 0 for c, _, _ in per_block), per_block)
+check("...and the stock delay runs every block in its place after that", all(st == 1 for _, st, _ in per_block[k:]) and
+      all(st == 0 for _, st, _ in per_block[:k]), per_block)
 
 # --- 5. THE FLASH HAS TO READ CLEANLY TOO (3.2.t). The payload on the test unit was byte-perfect and still misread one
 # word read in 700: the chip corrects a single flipped bit silently and bus-faults on two. b2_paired now clears the

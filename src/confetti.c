@@ -24,14 +24,14 @@
 
 #include "rev4.h"
 
-#pragma GCC optimize("Os", "no-tree-loop-distribute-patterns")
+#pragma GCC optimize("O2", "no-tree-loop-distribute-patterns")   /* bank 2: room to spare, so built for speed (3.3.l) */
 
 #define CONFETTI_FS   48000.0f
 #define MEM_GAIN   16384.0f          /* 16-bit store with 6 dB of headroom */
 #define VOICES     12
 #define EDGE       48                /* 1 ms fades at chunk edges */
 #define GUARD      64.0f             /* frames a reader stays away from the write head */
-#define CONFETTI_MAGIC 0x434e4631u      /* "CNF1" */
+#define CONFETTI_MAGIC 0x434e4632u      /* "CNF2": 3.3.y added quiet */
 #ifndef REV_MIX
 #define REV_MIX    0.45f
 #endif
@@ -67,9 +67,21 @@ struct confetti {
     float fb_env;                    /* level of the output, for the write-back hold */
     struct rev4 rev;
     struct piece v[VOICES];
+    uint32_t quiet;                  /* frames in a row with the send and the output both under QUIET (3.3.y) */
 };
 
 _Static_assert(sizeof(struct confetti) <= 0x1000, "munchi.cpp puts the wet blocks 0x1000 into the state line");
+
+/*
+ * IDLE BYPASS (3.3.y). Confetti ran at full cost with nothing going on: 11.4 % of the CPU since boot on the test unit at
+ * 0.6 voices (profiler, 10-20). Once the send AND the output have stayed under QUIET (-90 dBFS) for longer than the
+ * memory (+ 1 s), every sample in the memory is under it too (what is written back is the send plus the output, at
+ * most a step of the 16-bit store), so nothing a piece can read, in any mode, at any Size, is above -90 dB. Then the
+ * block is skipped: the output is exact silence and nothing moves. The first block with any send above QUIET runs
+ * normally again from where it stopped. What changes against running on: the output under -90 dB becomes 0, and the
+ * step clock and the random pieces carry on from where they were instead of where they would be.
+ */
+#define QUIET 3.1623e-5f             /* -90 dBFS */
 
 static inline float m_rnd(uint32_t *s)
 {
@@ -234,6 +246,22 @@ void confetti_block(struct confetti *m, float *rev, int16_t *a, int16_t *b, uint
     }
 #define MEMP(i, c) (((i) < half ? a + (i) * 2 : b + ((i) - half) * 2)[c])
 
+    if (m->quiet >= mem + 48000u) {  /* idle: skipped while the send stays quiet */
+        float pk = 0.0f;
+        for (int i = 0; i < n; i++) {
+            float x = il[i] < 0.0f ? -il[i] : il[i], y = ir[i] < 0.0f ? -ir[i] : ir[i];
+            pk = x > pk ? x : pk;
+            pk = y > pk ? y : pk;
+        }
+        if (pk < QUIET) {
+            for (int i = 0; i < n; i++)
+                ol[i] = orr[i] = 0.0f;
+            return;
+        }
+        m->quiet = 0;
+    }
+    float loud = 0.0f;               /* the block's peak, send and output: for the idle count */
+
     if (!(bpm > 20.0f))
         bpm = 120.0f;
     float df = size_beats[p->size < SIZES ? p->size : 5] * 60.0f / bpm * CONFETTI_FS;
@@ -337,11 +365,18 @@ void confetti_block(struct confetti *m, float *rev, int16_t *a, int16_t *b, uint
         }
         ol[i] = OUT_CEIL * m_soft(wet[0] * (1.0f / OUT_CEIL));
         orr[i] = OUT_CEIL * m_soft(wet[1] * (1.0f / OUT_CEIL));
+        for (int c = 0; c < 2; c++) {
+            float x = in[c] < 0.0f ? -in[c] : in[c], y = c ? orr[i] : ol[i];
+            y = y < 0.0f ? -y : y;
+            loud = x > loud ? x : loud;
+            loud = y > loud ? y : loud;
+        }
 
         if (++m->w >= mem)
             m->w = 0;
         if (m->filled < mem)
             m->filled++;
     }
+    m->quiet = loud < QUIET ? m->quiet + (uint32_t)n : 0;
 #undef MEMP
 }

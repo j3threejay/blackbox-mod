@@ -53,7 +53,8 @@ def store(q, **kw):
     """the app's settings store of pad q (row q // 4, col q % 4)"""
     ids = {"ins": 0x1B6, "ph": 0x1B7, "fl": 0x1B8, "rate": 0x1B9, "depth": 0x1BA, "manual": 0x1BB, "fb": 0x1BC,
            "spread": 0x1BD, "mix": 0x1BE,
-           "thresh": 0x1C2, "attack": 0x1C3, "hold": 0x1C4, "release": 0x1C5, "floor": 0x1C6, "live": 0x1C7}
+           "thresh": 0x1C2, "attack": 0x1C3, "hold": 0x1C4, "release": 0x1C5, "floor": 0x1C6, "live": 0x1C7,
+           "trmodel": 0x170, "tratt": 0x171, "trsus": 0x172, "trspeed": 0x173, "trlen": 0x174, "trout": 0x175, "trmix": 0x176}
     vals = {0x4: 500, 0xDB: 0}
     vals.update({ids[k]: v for k, v in kw.items()})
     rows = sorted(vals.items())
@@ -136,25 +137,32 @@ e.stub(0x0808C0D8, lambda: lists.append((e.arg(1), e.cstr(e.arg(2)), [e.cstr(e.r
                                          e.cstr(e.r32(e.uc.reg_read(UC_ARM_REG_SP) + 4)))))
 e.stub(0x0808C12C, lambda: nums.append((e.arg(1), e.cstr(e.arg(3)), e.r32(e.uc.reg_read(UC_ARM_REG_SP)), e.r32(e.uc.reg_read(UC_ARM_REG_SP) + 4), e.cstr(e.r32(e.uc.reg_read(UC_ARM_REG_SP) + 8)))))
 e.call("insert_register", 0x24001000)
-check("registered: Insert (Off, Phaser, Flanger, Gate), Input (Off, In 1, In 2, In 1+2), a Model list per effect",
-      [(l[0], l[1], l[2]) for l in lists] == [(0x1B6, "Insert:", ["Off", "Phaser", "Flanger", "Gate"]),
+check("registered: Insert (Off, Phaser, Flanger, Gate, Transnt), Input (Off, In 1, In 2, In 1+2), a Model list per effect",
+      [(l[0], l[1], l[2]) for l in lists] == [(0x1B6, "Insert:", ["Off", "Phaser", "Flanger", "Gate", "Transnt"]),
                                               (0x1C7, "Input:", ["Off", "In 1", "In 2", "In 1+2"]),
                                               (0x1B7, "Model:", ["Pebble", "Ninety", "Vibe", "Deep", "Steps"]),
-                                              (0x1B8, "Model:", ["Electra", "Jet", "Tape", "Metal"])], lists)
+                                              (0x1B8, "Model:", ["Electra", "Jet", "Tape", "Metal"]),
+                                              (0x170, "Model:", ["Differ", "Punch", "Smooth"])], lists)
 check("...the six Phaser / Flanger knobs 0..100 %: Rate, Depth, Manual, Feedback, Spread, Mix (0x1b9 .. 0x1be)",
       [(n[0], n[1], n[2], n[3]) for n in nums[:6]] == [(0x1B9 + i, lab, 0, 1000) for i, lab in
                                                        enumerate(["Rate:", "Depth:", "Manual:", "Feedback:", "Spread:", "Mix:"])], nums[:6])
 check("...and the Gate's own five (0x1c2 .. 0x1c6), so each type's page reads the way that type works",
-      [(n[0], n[1], n[2], n[3]) for n in nums[6:]] == [(0x1C2 + i, lab, 0, 1000) for i, lab in
-                                                       enumerate(["Thresh:", "Attack:", "Hold:", "Release:", "Floor:"])], nums[6:])
-check("fifteen distinct xml names, labels short enough for the screen",
-      len({l[3] for l in lists} | {n[4] for n in nums}) == 15 and all(len(x[1]) <= 9 for x in lists + nums),
+      [(n[0], n[1], n[2], n[3]) for n in nums[6:11]] == [(0x1C2 + i, lab, 0, 1000) for i, lab in
+                                                         enumerate(["Thresh:", "Attack:", "Hold:", "Release:", "Floor:"])], nums[6:11])
+check("...and the Transient's six (0x171 .. 0x176): Attack / Sustain bipolar +-100 %, Speed, Length 0..100 %, Output +-12 dB, Mix",
+      [(n[0], n[1], n[2], n[3]) for n in nums[11:]] == [(0x171, "Attack:", -1000, 1000), (0x172, "Sustain:", -1000, 1000),
+                                                        (0x173, "Speed:", 0, 1000), (0x174, "Length:", 0, 1000),
+                                                        (0x175, "Output:", -12000, 12000), (0x176, "Mix:", 0, 1000)], nums[11:])
+check("twenty-two distinct xml names, labels short enough for the screen",
+      len({l[3] for l in lists} | {n[4] for n in nums}) == 22 and all(len(x[1]) <= 9 for x in lists + nums) and all(len(n) <= 8 for l in lists for n in l[2]),
       sorted({l[3] for l in lists} | {n[4] for n in nums}))
 e.stub(0x08093EF6, lambda: added.append((e.arg(1), e.arg(2))))
 e.call("insert_defaults", 0x24073000)
-check("a new pad: Off, the nine shared settings, the Gate's five, and Input Off",
-      added[0] == (0x1B6, 0) and [a[0] for a in added] == list(range(0x1B6, 0x1BF)) + list(range(0x1C2, 0x1C8))
-      and added[-1] == (0x1C7, 0), added)
+check("a new pad: Off, the nine shared settings, the Gate's five, Input Off, then the Transient's seven",
+      added[0] == (0x1B6, 0) and [a[0] for a in added] == list(range(0x1B6, 0x1BF)) + list(range(0x1C2, 0x1C8)) + list(range(0x170, 0x177))
+      and added[14] == (0x1C7, 0), added)
+check("the Transient comes up as Differ, Attack +40 % (heard as soon as it is on), Sustain 0, times centred, 0 dB, Mix 100 %",
+      added[-7:] == [(0x170, 0), (0x171, 400), (0x172, 0), (0x173, 500), (0x174, 500), (0x175, 0), (0x176, 1000)], added[-7:])
 check("the Gate comes up the way it was set on pad 10 of the test unit: Thresh 80 %, Attack 0, Hold 0, Release 20 %, Floor 0",
       [a[1] for a in added if 0x1C2 <= a[0] <= 0x1C6] == [800, 0, 0, 200, 0], added[-6:])
 
@@ -168,7 +176,7 @@ store(11, ins=7, fl=9)
 scan()
 
 
-SET_SIZE = 48                                     # struct ins_set: type, model, input, pad, then 11 floats
+SET_SIZE = 76                                     # struct ins_set: type, model, input, pad, 11 floats, ts_params (28)
 
 
 def setting(q):
@@ -580,6 +588,12 @@ e.call("master_list", APP, CELL, 0x24075000, 0)
 check("the Gate's page: Insert, Thresh, Attack, Hold, Release, Floor - no Model, no Rate, and no Mix (Floor does that job)",
       calls == [("clear",), ("add", 0x1B6, 3), ("add", 0x1C2, 350), ("add", 0x1C3, 120), ("add", 0x1C4, 200),
                 ("add", 0x1C5, 400), ("add", 0x1C6, 0)], calls)
+store(6, ins=4, trmodel=1, tratt=-250, trsus=600, trspeed=300, trlen=700, trout=-3000, trmix=800)
+calls.clear()
+e.call("master_list", APP, CELL, 0x24075000, 0)
+check("the Transient's page: Insert, Model, Attack, Sustain, Speed, Length, Output, Mix (all 8 slots), with the pad's values",
+      calls == [("clear",), ("add", 0x1B6, 4), ("add", 0x170, 1), ("add", 0x171, -250 & 0xFFFFFFFF), ("add", 0x172, 600), ("add", 0x173, 300),
+                ("add", 0x174, 700), ("add", 0x175, -3000 & 0xFFFFFFFF), ("add", 0x176, 800)], calls)
 store(6, ins=0)
 calls.clear()
 e.call("master_list", APP, CELL, 0x24075000, 0)
@@ -621,6 +635,21 @@ check("bank 2 erased: the pad insert bypasses itself instead of calling into 0xf
       ok and after == before, "faulted" if not ok else "the buffer was touched")
 e.uc.mem_write(0x08100000, _saved)
 e.uc.mem_write(0x2405FFD0 + 35, b"\x00")
+
+# ---------------------------------------------------------------- the Transient's settings
+memory()
+for q in range(16):
+    store(q)
+store(9, ins=4, trmodel=2, tratt=-500, trsus=750, trspeed=200, trlen=900, trout=-6000, trmix=400)
+store(12, ins=4, trmodel=7, tratt=5000, trsus=-5000, trout=99999)
+scan()
+ts9 = struct.unpack("<I6f", e.uc.mem_read(BANK + 8 + 9 * SET_SIZE + 48, 28))
+check("a Transient pad: Smooth, Attack -50 %, Sustain +75 %, Speed 0.2, Length 0.9, Output -6 dB (0.5 - 6/24.08), Mix 0.4",
+      e.r8(BANK + 8 + 9 * SET_SIZE) == 4 and ts9[0] == 2 and [round(v, 3) for v in ts9[1:]] == [-0.5, 0.75, 0.2, 0.9, round(0.5 - 6000 / 24082.4, 3), 0.4],
+      ts9)
+ts12 = struct.unpack("<I6f", e.uc.mem_read(BANK + 8 + 12 * SET_SIZE + 48, 28))
+check("...out-of-range settings are clamped: a model past the list = Differ, Attack / Sustain +-100 %, Output +12 dB",
+      ts12[0] == 0 and round(ts12[1], 3) == 1.0 and round(ts12[2], 3) == -1.0 and round(ts12[5], 3) == round(0.5 + 12000 / 24082.4, 3), ts12)
 
 print(f"\n{fails} failure(s)")
 sys.exit(1 if fails else 0)

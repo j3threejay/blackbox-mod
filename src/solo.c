@@ -279,7 +279,12 @@ typedef void (*select_fn)(void *button, int on);
 static const uint16_t btn_at[4] = {0x214, 0x174, 0xd4, 0x34};
 #define ID_MUTE  0x1f1
 #define ID_SOLO  0x1f2
-#define ID_BLANK 0x1f3
+#define ID_RPT   0x1f3           /* note repeat (repeat.c): hold it, hold pads */
+#define ID_DIV   0x1f4           /* note repeat's division: a tap steps it */
+void repeat_hold(int on);
+void repeat_next_div(void);
+const char *repeat_div_name(void);
+int repeat_held(void);
 
 static int rec_muted(int i)
 {
@@ -318,6 +323,7 @@ static void pads_lights(uint8_t *pads)
     int ok = *(int32_t *)(pads + PADS_POS) == 2 && pad <= 0xff && row <= 3 && col <= 3, i = row * 4 + col;
     fw_select(buttons + btn_at[0], ok && !pads_cell(pads, i)[CELL_UNMUTED]);
     fw_select(buttons + btn_at[1], ok && ((S->mask >> i) & 1));
+    fw_select(buttons + btn_at[2], *(int32_t *)(pads + PADS_POS) == 2 && repeat_held());
 }
 
 static void pads_restore(uint8_t *pads)
@@ -368,10 +374,22 @@ static void pads_mute(uint8_t *pads, int i)
 int pads_child_msg(uint8_t *view, const uint16_t *msg)
 {
     unsigned id = msg[6];
-    if ((msg[0] != 1 && msg[0] != 2) || id < ID_MUTE || id > ID_BLANK)
+    if ((msg[0] != 1 && msg[0] != 2) || id < ID_MUTE || id > ID_DIV)
         return fw_pads_child(view, msg);
+    if (id == ID_RPT) {                  /* held: pressed = 1, released = 2 */
+        repeat_hold(msg[0] == 1);
+        pads_lights(view);
+        return 0;
+    }
+    if (id == ID_DIV) {
+        if (msg[0] == 2) {
+            repeat_next_div();
+            fw_label(*(uint8_t **)(view + PADS_PANELS + 4) + btn_at[3], repeat_div_name());
+        }
+        return 0;
+    }
     unsigned pad = *(uint16_t *)(view + PADS_SELECTED), row = (pad >> 4) & 0xf, col = pad & 0xf;
-    if (msg[0] != 2 || id == ID_BLANK || pad > 0xff || row > 3 || col > 3)
+    if (msg[0] != 2 || pad > 0xff || row > 3 || col > 3)
         return 0;
     ensure();
     int i = row * 4 + col;
@@ -391,8 +409,10 @@ void pads_msg(uint8_t *view, const uint16_t *msg)
     if (!msg || (msg[0] != 0x63 && msg[0] != 0x67) || *(int32_t *)(view + PADS_POS) != 2)
         return;
     ensure();
-    if (msg[0] == 0x67)
+    if (msg[0] == 0x67) {
+        repeat_hold(0);                  /* the screen came back: a release that was missed does not stick */
         pads_sync(view);
+    }
     pads_lights(view);
 }
 
@@ -405,8 +425,8 @@ void pads_panels(uint8_t *view)
     static const char *const clip[4] = {(const char *)0x080cf730, (const char *)0x080cf728, (const char *)0x080cf720,
                                         (const char *)0x080cf71c};      /* CLR, PSTE, COPY, CUT: top to bottom */
     static const uint16_t clip_id[4] = {0x25, 0x2a, 0x29, 0x28};
-    static const char *const mute[4] = {"MUTE", "SOLO", "", ""};
-    static const uint16_t mute_id[4] = {ID_MUTE, ID_SOLO, ID_BLANK, ID_BLANK};
+    const char *const mute[4] = {"MUTE", "SOLO", "RPT", repeat_div_name()};
+    static const uint16_t mute_id[4] = {ID_MUTE, ID_SOLO, ID_RPT, ID_DIV};
     int pos = *(int32_t *)(view + PADS_POS);
     uint8_t *slider = *(uint8_t **)(view + PADS_PANELS), *buttons = *(uint8_t **)(view + PADS_PANELS + 4);
     if (pos > 0)
@@ -416,6 +436,8 @@ void pads_panels(uint8_t *view)
             *(uint32_t *)(b + BTN_ID) = pos == 2 ? mute_id[k] : clip_id[k];
         }
     ensure();
+    if (pos != 2)
+        repeat_hold(0);                  /* RPT is off the screen: nothing stays held */
     if (pos == 2)
         pads_sync(view);
     pads_lights(view);
