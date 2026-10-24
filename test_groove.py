@@ -7,7 +7,7 @@ functions (recorded, to prove Stock hands every call to them untouched).
 Checked: Stock calls stock with the same arguments; where the swung note lands for MPC / Linn/909 / SP-1200 at the
 classic settings (their own ticks: 96, 48, 24 PPQN); the window (16ths, or 8ths on the SP-1200); clamping; that the
 two directions are inverses on every grid point and the map never runs backwards; negative ticks; the three player
-calls and seqfix's call are redirected; "Groove:" registered with four names and on Tools Main.
+calls and seqfix's call are redirected; "Groove:" registered with four names and on the Tools Clock tab (Main until beta 1).
 NOT run: the player and the engine clock on the unit (the real converters, tempo changes), the swung note-on offset
 inside a block (stock behaviour, unchanged), how it feels.
 """
@@ -152,7 +152,9 @@ sites = {0x0805D238: "groove_s2t", 0x0805DC90: "groove_s2t", 0x0805DE58: "groove
 check("the player's three swing calls go to the groove functions",
       all(bl_target(a) == e.sym[n] & ~1 for a, n in sites.items()), {hex(a): hex(bl_target(a)) for a in sites})
 main = struct.unpack_from("<14H", fw, 0x080EED18 - 0x08040000)
-check("Tools Main ends with Groove, then Theme", list(main[11:14]) == [0x145, 0x144, 0], [hex(x) for x in main])
+clock = struct.unpack_from("<6H", fw, 0x080EEDF0 - 0x08040000)
+check("Groove on the Clock tab after its four stock rows, not on Main (Main holds 12 rows at most: test_toolstabs.py)",
+      list(clock[:6]) == [0xEF, 0xF0, 0x10F, 0x110, 0x145, 0] and 0x145 not in main, ([hex(x) for x in main], [hex(x) for x in clock]))
 regs = []
 e.stub(0x0808C0D8, lambda: regs.append((e.arg(1), e.cstr(e.arg(2)), [e.cstr(e.r32(e.arg(3) + 4 * i) & 0xFFFFFFFF)
                                                                       for i in range(e.r32(e.uc.reg_read(UC_ARM_REG_SP)))])))

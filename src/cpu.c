@@ -42,13 +42,13 @@ const char fw_version[] = "JOE DIAG";             /* the diagnostic build for te
 #include "release.h"
 const char fw_version[] = RELEASE_NAME;
 #elif defined(CPU_PROF)
-const char fw_version[] = "3.4.a P";              /* 3.4.a + CPU_PROF: per-block section timings for the peak hunt (prof.c) */
+const char fw_version[] = "3.4.a2 P";             /* 3.4.a2 + CPU_PROF: per-block section timings for the peak hunt (prof.c) */
 #elif defined(SLICE_DIAG)
 const char fw_version[] = "3.3.j";                /* rc4 + SLICE_DIAG: per-trigger rows for the slicer crunch bug (filter.c) */
 #elif defined(FAULT_SHOW)
 const char fw_version[] = "3.3.g";                /* 3.3.e + FAULT_SHOW (3.3.f drew nothing: ARGB1555), for proving the diagnostic on the test unit */
 #else
-const char fw_version[] = "3.4.a";                /* 3.3.z + a sequence switched back across PADS gets its notes back (seqmode.c) */
+const char fw_version[] = "3.4.a2";               /* 3.4.a + TOOLS tabs fix (Groove to the Clock tab) + insert header cut: beta 2 candidate */
 #endif
 /* 1 = a public build: named, and without the raw USB peek / poke (test_usbdev.py and test_cpu.py ask). */
 #ifdef PUBLIC_BUILD

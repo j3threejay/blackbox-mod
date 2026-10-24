@@ -54,7 +54,11 @@ PATCHES = [
     (0x080EED1A, struct.pack("<2H", 0xB4, 0x1D0), struct.pack("<2H", 0x1DB, 0xB4)),
     # Colour themes (src/theme.c): "Theme:" at the end of Tools Main, the palette applied before each GUI frame,
     # the full redraw's clear in the theme's background, three piano roll texts off the background colour
-    (0x080EED2E, struct.pack("<2H", 0, 0), struct.pack("<2H", 0x145, 0x144)),     # Groove (groove.c, 3.3.q), then Theme
+    # Tools Main holds 12 rows at most: the tab-bar fill (FUN_080996b0) writes row i's value at +0x14 + 4i of a 0x80-byte
+    # struct with no limit, and row 13 lands on the tab count (+0x44). Beta 1 had 13 (Groove then Theme): the number of
+    # tabs drawn = the Theme value (testers 10-24, test_toolstabs.py). Groove lives on the Clock tab since beta 2.
+    (0x080EED2E, struct.pack("<2H", 0, 0), struct.pack("<2H", 0x144, 0)),          # Theme, the 12th and last row
+    (0x080EEDF8, struct.pack("<2H", 0, 0), struct.pack("<2H", 0x145, 0)),          # Clock tab: Groove (groove.c, 3.3.q)
     (0x08043E4C, bl(0x08043E4C, 0x0808B2D0), bl(0x08043E4C, sym["theme_compose"])),
     # Boot splash (src/splash.c): the splash view's draw (vtable 0x080f19a4 +4, stock = the generic FUN_080aeaf8)
     (0x080F19A8, word(0x080AEAF9), word(sym["splash_draw"] | 1)),

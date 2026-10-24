@@ -103,7 +103,7 @@ e.stub(0x08093EF6, lambda: added.append((e.arg(1), e.arg(2))))
 e.call("comp_defaults", 0x24072000, 0xB4, 1)
 check("defaults: Master FX Off, with usable VHS settings behind it", added[4] == (0x1DB, 0) and [a[0] for a in added[5:12]] == list(range(0x1DC, 0x1E3)), added)
 page = [e.r16(0x080EED18 + 2 * k) for k in range(14)]
-check("Tools Main page: Headphone, Master FX, Compressor (the order the audio runs in), then the rest, Groove, Theme last", page[:4] == [0xBA, 0x1DB, 0xB4, 0xBB] and page[10:] == [0x19B, 0x145, 0x144, 0], [hex(v) for v in page])
+check("Tools Main page: Headphone, Master FX, Compressor (the order the audio runs in), then the rest, Theme last (12 rows: Groove is on Clock)", page[:4] == [0xBA, 0x1DB, 0xB4, 0xBB] and page[10:13] == [0x19B, 0x144, 0], [hex(v) for v in page])
 
 # --- knob pages
 settings(comp=3, thresh=-6000, mfx=1, wow=250)

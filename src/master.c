@@ -310,6 +310,36 @@ const char *master_title(void)
     return type == MFX_PRISM ? (UI->page == PAGE_MFX2 ? "Prism 2" : "Prism 1") : type == MFX_VHS ? "VHS" : "MFX";
 }
 
+/*
+ * A pad's insert page is the knob screen on the pad's own cell, so stock heads it with the sample name, which wraps
+ * past 8 characters ("37.wav" at the left, the rest pushed right: tester photo 10-24). After every build of that page
+ * (fxout_after_build): the name without ".wav", cut to 8. The header's text is the label button's string at +0x65
+ * (FUN_080a3dec -> FUN_080c3b98: text object +0x34, string +0x31).
+ */
+#define SCREEN_HEADER 0x3ac
+#define LABEL_TEXT    0x65
+void master_after_build(uint8_t *screen)
+{
+    bkp_enable();
+    if (!UI->active || UI->page != PAGE_INS)
+        return;
+    const char *now = (const char *)(screen + SCREEN_HEADER + LABEL_TEXT);
+    int n = 0;
+    while (n < 31 && now[n])
+        n++;
+    if (n >= 4 && now[n - 4] == '.' && (now[n - 3] | 0x20) == 'w' && (now[n - 2] | 0x20) == 'a' && (now[n - 1] | 0x20) == 'v')
+        n -= 4;
+    if (n > 8)
+        n = 8;
+    if (now[n] == 0)
+        return;                                         /* already short enough */
+    char cut[9];
+    for (int i = 0; i < n; i++)
+        cut[i] = now[i];
+    cut[n] = 0;
+    fw_label(screen + SCREEN_HEADER, cut);
+}
+
 /* set_screen(0x23) posts msg 0x9d with the cell id at app+0x28; lend it the global cell for that one call, so the FX
    screen keeps its own selection. */
 static void open_page(uint8_t *app, int page)

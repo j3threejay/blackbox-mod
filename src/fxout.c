@@ -255,8 +255,11 @@ void fxout_leave(void)
 }
 
 /* fx_screen_msg, after the rebuild: the tab (and, on the OUT page, the header) for what was built */
+void master_after_build(uint8_t *screen);   /* master.c: a pad's insert page keeps its header to 8 characters */
+
 void fxout_after_build(uint8_t *screen)
 {
+    master_after_build(screen);
     start();
     uint8_t *tab = screen + SCREEN_TAB;
     int which = S->built;

@@ -123,9 +123,8 @@ e.call("theme_register", 0x24053000)
 check('registered: 0x144 "Theme:" Stock / Midnight / Blue LCD / Amber VFD, saved as "theme"',
       regs == [(0x144, "Theme:", ["Stock", "Midnight", "Blue LCD", "Amber VFD"], "theme")], regs)
 main = struct.unpack_from("<13H", fw, 0x080EED18 - 0x08040000)
-if "groove_register" in e.sym:                       # 3.3.q on: Groove sits before Theme
-    check("Tools Main ends with Groove then Theme (0x144) after the stock rows", main[12] == 0x144 and main[11] == 0x145,
-          [hex(x) for x in main])
+if False:                                            # 3.3.q .. beta 1 had Groove before Theme (13 rows: the tabs bug)
+    pass
 else:
     check("Tools Main ends with Theme (0x144) after the stock rows", main[11] == 0x144 and main[10] == 0x19B,
           [hex(x) for x in main])
