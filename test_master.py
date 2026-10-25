@@ -128,7 +128,7 @@ check("Compressor page with Smash selected: Compressor, Depth, Time, Comp Thresh
 settings(comp=3, thresh=-6000, mfx=1, wow=250)
 e.uc.mem_write(UI, bytes([1, 1]))
 r = build(0x40)
-check("global cell, Master FX page: Type + the seven VHS knobs = 8 slots", r[0] == 1 and [b[0] for b in r[1][1:]] == list(range(0x1DB, 0x1E3)) and r[1][1:3] == [(0x1DB, 1), (0x1DC, 250)], r)
+check("global cell, Master FX page (VHS): its seven knobs, no type knob (picked on the Tools row, tester report 10-25)", r[0] == 1 and [b[0] for b in r[1][1:]] == list(range(0x1DC, 0x1E3)) and r[1][1] == (0x1DC, 250), r)
 check("a delay / reverb cell: the stock page builder, untouched", build(0x310) == (7, [("stock", 0)]))
 check("...and the master page flag is dropped (the knob screen is on an FX cell again)", e.r8(UI + 1) == 0)
 

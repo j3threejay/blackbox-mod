@@ -297,8 +297,12 @@ void slice_pos_moved(uint8_t *view, int value)
 }
 
 /* Replaces the generic "forward knob change to the app" post in the view's knob handler. */
+int sel_forward(uint8_t *view, struct msg *m);   /* clipsel.c: Clip mode's Start / End / Beats / BPM */
+
 void slice_forward(uint8_t *view, struct msg *m)
 {
+    if (sel_forward(view, m))
+        return;
     if (m->id == MSG_PARAM && m->a == PARAM_ZOOM) {
         set_zoom(view, m->b);
         return;

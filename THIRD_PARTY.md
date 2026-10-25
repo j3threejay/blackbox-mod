@@ -10,7 +10,14 @@ All of it is MIT-licensed, and these notices travel with every copy.
 | `reverb.h`, `fx_engine.h` | © Émilie Gillet (Mutable Instruments) | MIT | `src/munchi/tempo/`, notices in the files |
 | DaisySP `dsp.h` | © Electrosmith, Corp. | MIT | `src/munchi/daisysp/` |
 | TAPESCAM tape / VHS emulation ([charlesvestal/schwung-tapescam](https://github.com/charlesvestal/schwung-tapescam)) | © 2025 Charles Vestal | MIT | `src/tapescam.c` (notice in the file), reference copy and `LICENSE` in `host/tapescam_ref/` |
+| Tempo detector, after Chop Shop (the author's own Ableton Move module, not published) | © 2026 Justin Joe | MIT | ported in `src/tempo_dsp.c` |
 | State-variable filter, after stmlib `dsp/filter.h` (`Svf`) | © 2014 Émilie Gillet | MIT | reimplemented in `src/filter.c` |
+
+## Published methods
+
+- The **Keyframe** stretch model (`src/stretch_dsp.c`) is a clean-room implementation of "Keyframe Time Stretching
+  via Extrema Sampling" by Matthew Nielsen (DAFx26; the paper is CC BY 4.0), written from the paper alone. The
+  author's own code for it was not used.
 
 ## Not included
 

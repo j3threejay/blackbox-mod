@@ -55,6 +55,7 @@ static const char *const trig_names[3] = {"Free", "Retrig", "Once"};
 
 /* ---- settings ---- */
 
+void stretch_defaults(void *store);   /* stretch.c: the pad's Stretch model */
 void insert_defaults(void *store);   /* insert.c: the pad's insert effect, nine more */
 
 void lfo_register(void *table)
@@ -78,6 +79,7 @@ void lfo_defaults(void *store, int param, int value)
     for (int i = 0; i < 8; i++)
         fw_store_add(store, P_LFO + i, first[i]);
     insert_defaults(store);
+    stretch_defaults(store);
 }
 
 /* ---- the tab ---- */

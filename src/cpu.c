@@ -42,13 +42,13 @@ const char fw_version[] = "JOE DIAG";             /* the diagnostic build for te
 #include "release.h"
 const char fw_version[] = RELEASE_NAME;
 #elif defined(CPU_PROF)
-const char fw_version[] = "3.4.a2 P";             /* 3.4.a2 + CPU_PROF: per-block section timings for the peak hunt (prof.c) */
+const char fw_version[] = "3.4.m P";              /* 3.4.m + CPU_PROF: per-block section timings for the peak hunt (prof.c) */
 #elif defined(SLICE_DIAG)
 const char fw_version[] = "3.3.j";                /* rc4 + SLICE_DIAG: per-trigger rows for the slicer crunch bug (filter.c) */
 #elif defined(FAULT_SHOW)
 const char fw_version[] = "3.3.g";                /* 3.3.e + FAULT_SHOW (3.3.f drew nothing: ARGB1555), for proving the diagnostic on the test unit */
 #else
-const char fw_version[] = "3.4.a2";               /* 3.4.a + TOOLS tabs fix (Groove to the Clock tab) + insert header cut: beta 2 candidate */
+const char fw_version[] = "3.4.m";                /* 3.4.l + Beats reads "Guess" (not "Auto"); 3.4.l = 3.4.k + a new sample clears the selection on the paths that skip FUN_0809aa94; 3.4.k = 3.4.j + Beats knob = Beats + 1 (0 Detect, 1 Auto: -1 was unreachable on glass); 3.4.j = 3.4.i + detector job reset (first run after a boot) + Detect is opt in (Beats -> Detect); 3.4.i = 3.4.h + the Waveform tick collects a finished detection; 3.4.h = 3.4.g + auto tempo: retries, shows Detect.. / ~guess / Fail n, keeps his edits, re-detect (Beats -> Auto), clears on a new sample */
 #endif
 /* 1 = a public build: named, and without the raw USB peek / poke (test_usbdev.py and test_cpu.py ask). */
 #ifdef PUBLIC_BUILD

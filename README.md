@@ -15,6 +15,25 @@ out (new FX, fixes). That's all the list is for.
 TOOLS shows `JOEBOX 2` as the version. Still two files on the card, `BLACKBOX.bin` and `BBEXTRA.BIN`, and the first
 boot restarts itself once while the second file goes in.
 
+New in beta 3:
+
+- **Time-stretch models for Clip pads.** On a Clip pad's POS page, under Sync, there's a new **Stretch** row: Stock,
+  Smooth, Keyframe or Cyclic. Each one changes how a synced clip gets squeezed or stretched to your project tempo.
+  Stock is the Blackbox's own. Smooth is the clean one, Keyframe follows the transients, Cyclic has that chopped
+  sampler colour. They work inside stock's own sync, so timing stays exactly as stock plays it. Not on Slicer pads yet.
+- **Tempo from a section, on the Waveform screen.** Open a Clip pad's Waveform screen and the four knobs are Start,
+  End, Beats and BPM. Mark a section, tell it how many beats are in it, and the clip learns its tempo from that
+  section and plays the whole file in sync from Start, even if the file starts in the middle of a beat. Turning BPM
+  one click halves or doubles it, for when the count is right but the speed is off.
+- **Detect.** Turn Beats down past **Guess** to **Detect** and the Blackbox finds the tempo and beat one for you.
+  It takes a few seconds and the answer lands on its own. Nothing runs until you ask, so if you like how stock
+  handles your clip, leave it on Guess (BPM shows stock's guess with a `~` in front).
+- **Clips play while stopped**, so you can hear what you're marking.
+- **The position knobs speed up** the faster you turn them, so you can cross a long file without cranking forever.
+- **Fixed**: saving or packing a big project could freeze for 10 seconds or so and then restart the Blackbox. Saving
+  no longer needs the extra memory that ran out. Also the VHS page lost its type knob, which could leave you stuck on
+  Prism. Pick the Master FX type on the TOOLS row like before.
+
 New since JOEBOX 1:
 
 - **Less CPU.** A lot of the mod's DSP moved to the chip's second flash bank and was rebuilt for speed, Confetti
@@ -98,6 +117,10 @@ From 3.1.n and earlier:
 - USB on the power jack doesn't work on every unit. On some, that jack's USB data side is dead with any firmware,
   stock included (1010music never used it for data). The Blackbox boots and plays fine, you just don't get USB audio
   and MIDI. If your computer never sees the Blackbox over that jack, it's the unit, not the mod.
+- Detect isn't always right. It can land on double or half the tempo (one click on BPM fixes that), and on some
+  material it picks something else entirely. Then set Beats yourself. "Fail 3" means it couldn't find a steady tempo
+  at all, which is normal on short samples and anything without a beat.
+- Stretch, the Waveform section knobs and Detect are on Clip pads only, not Slicer pads.
 - Relapse with Recall up can play a short piece of its memory a few seconds after everything has gone quiet. That is
   Recall doing its job, but it can sound like a click.
 

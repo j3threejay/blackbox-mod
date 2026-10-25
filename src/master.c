@@ -138,7 +138,7 @@ int b2_live(void);               /* cpu.c: is bank 2, where prism_block lives, t
 #define PRISM_MEM   (*(volatile uint32_t *)0x38800f70u)
 #define PRISM_CHECK (*(volatile uint32_t *)0x38800f74u)
 #define PRISM_KEY   0x5052534du
-#define EXTRA_BYTES 0x3e100u      /* behind Prism's: lfo.c's state (0x1000), usbdev.c's audio ring (0x6000), filter.c's S950 bank (0x4000), insert.c's bank (0x22000), comp.c's clipper (0x100), the EQ screen's RTA (0x10000, rta.h), the filter's switch crossfade (0x1000, filter.h) */
+#define EXTRA_BYTES 0x3e110u      /* behind Prism's: (+ 0x10 at 0x3e100: stretch.c's pointer word, STR_PTR_OFFSET) lfo.c's state (0x1000), usbdev.c's audio ring (0x6000), filter.c's S950 bank (0x4000), insert.c's bank (0x22000), comp.c's clipper (0x100), the EQ screen's RTA (0x10000, rta.h), the filter's switch crossfade (0x1000, filter.h) */
 
 /* which master page the knob screen shows, and whether it is showing one (backup SRAM, next to munchi's words) */
 struct master_ui {
@@ -164,6 +164,7 @@ enum { PAGE_COMP, PAGE_MFX, PAGE_MFX2, PAGE_INS };
 #define PADVIEW_PAGE   0xf6cc    /* 0, 2, 3 = knob pages, 1 and 4 = lists */
 #define PADVIEW_ROWS   0xd50     /* its list widget */
 void insert_register(void *table);
+void stretch_register(void *table);   /* stretch.c */
 
 #define P_SMASH_DEPTH 0x1ea
 #define P_SMASH_TIME  0x1eb
@@ -174,7 +175,10 @@ void insert_register(void *table);
 #define P_CLIPPER 0x1b4
 static const uint16_t page_comp[] = {P_COMP, P_THRESH, P_CLIPPER, P_CLIP, P_SHAPE, 0};
 static const uint16_t page_smash[] = {P_COMP, P_SMASH_DEPTH, P_SMASH_TIME, P_THRESH, P_CLIPPER, P_CLIP, P_SHAPE, 0};
-static const uint16_t page_mfx[] = {P_MFX, P_WOW, P_FLUTTER, P_SAT, P_DROPOUT, P_NOISE, P_HICUT, P_LOCUT, 0};
+/* VHS's own seven only: the type is picked on the Tools row, like Prism's and TAPESCAM's pages. (Its page began with
+   "Master FX:" from when VHS was the only one; turning it rebuilt the page as Prism's, which has no way back: tester
+   report 10-25.) */
+static const uint16_t page_mfx[] = {P_WOW, P_FLUTTER, P_SAT, P_DROPOUT, P_NOISE, P_HICUT, P_LOCUT, 0};
 
 /* Called from comp_register / comp_defaults (their hooks are already in the registration and defaults paths). */
 void master_register(void *table)
@@ -210,6 +214,7 @@ void master_register(void *table)
     fw_register_list(table, P_TS_WIDEN, "Widen:", ts_widen_names, 2, "tswiden");
     lfo_register(table);
     insert_register(table);
+    stretch_register(table);
 }
 
 void master_defaults(void *store)
@@ -471,6 +476,8 @@ typedef uint32_t (*perm_alloc_fn)(uint32_t bytes, int one);
  * Replaces the last of the delay constructor's three line allocations (bl FUN_0806aa80 @0x0805462a): runs once per
  * boot, at the point where stock itself takes permanent SDRAM. Takes Prism's block after it.
  */
+void stretch_alloc(uint8_t *master);   /* stretch.c */
+
 void master_alloc(int *line, int floats)
 {
     instrument_boot();                                      /* fault.c: latch the breadcrumb trail from before the
@@ -490,6 +497,7 @@ void master_alloc(int *line, int floats)
         *(volatile uint32_t *)(mem + PRISM_BYTES + 0x2d000u) = 0;   /* comp.c's clipper */
         *(volatile uint32_t *)(mem + PRISM_BYTES + 0x2d100u) = 0;   /* rta_dsp.c */
     }
+    stretch_alloc(mem ? (uint8_t *)mem : 0);                 /* stretch.c: its own allocation, after this one */
 }
 
 static uint8_t *prism_mem(void)

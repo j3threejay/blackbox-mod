@@ -91,7 +91,7 @@ def f32(x):
 from unicorn import UC_HOOK_CODE
 PRISM, CTX = 0xC0000000, 0x24058000
 PMEM, PCHECK = 0x38800F70, 0x38800F74
-e.uc.mem_map(0xC0000000, 0x90000)
+e.uc.mem_map(0xC0000000, 0x96000)               # the master block (0x94910) and a little over
 FX = [["Drive", "Sweet", "Fuzz", "Snarl", "Bloom"], ["Doubler", "Vibrato", "Phaser", "Tremolo", "Pitch"],
       ["PingPong", "Tape", "Hall", "Scatter", "Reverse"], ["Filter", "Clamp", "Cassette", "Glitch", "Static"]]
 
@@ -161,12 +161,16 @@ e.uc.mem_write(UI, bytes([2, 1]))
 check("Prism page 2: Tilt, Rate, Time, Mix", build() == ["clear", 0x1A5, 0x1A6, 0x1A7, 0x1A8], build())
 e.uc.mem_write(UI, bytes([1, 1]))
 settings(mfx=1)
-check("VHS page unchanged: Type + its seven knobs", build() == ["clear"] + list(range(0x1DB, 0x1E3)), build())
+check("VHS page: its seven knobs, no type knob (the type is on the Tools row, as for Prism and TAPESCAM: tester report 10-25)", build() == ["clear"] + list(range(0x1DC, 0x1E3)), build())
 
 # --- memory: taken once at boot from the firmware's permanent allocator
 allocs = []
 e.stub(0x0806AA80, lambda: allocs.append(("line", e.arg(0), e.arg(1))))
 e.stub(0x0804436C, lambda: allocs.append(("perm", e.arg(0))), value=PRISM)
+def perm():                                        # the master block, then stretch.c's area: refused here
+    allocs.append(("perm", e.arg(0)))
+    e.ret(PRISM if len([a for a in allocs if a[0] == "perm"]) == 1 else 0)
+e.stubs[0x0804436C] = perm
 e.uc.mem_write(PMEM, b"\0" * 8)
 settings(mfx=2, fx0=0, amt0=1000)
 x = [tone(i) for i in range(N)]
@@ -176,8 +180,10 @@ check("the meter is up before the boot hook runs here (the emulator starts that 
 e.call("master_alloc", 0x24076000, 192000)
 check("master_alloc is the once-a-boot hook: it wipes the meter's state, and the bank 2 verdict with it (cpu_boot)", e.r32(0x2405FFD0) == 0)
 e.meter_up()                                      # ...and the audio task's first wake sets it up again, before any block
-check("master_alloc: the delay's line is allocated as before, then 0x94900 bytes (Prism's 0x56800 + 0x1000 for the LFOs + 0x6000 for the USB audio ring + 0x4000 for the S950 filters + 0x22000 for the pad inserts + 0x100 for the clipper + 0x10000 for the EQ screen's RTA + 0x1000 for the filter's switch crossfade), pointer + check word stored",
-      allocs == [("line", 0x24076000, 192000), ("perm", 0x94900)] and e.r32(PMEM) & 0xFFFFFFFF == PRISM and e.r32(PCHECK) & 0xFFFFFFFF == PRISM ^ 0x5052534D, (allocs, hex(e.r32(PMEM)), hex(e.r32(PCHECK))))
+check("master_alloc: the delay's line is allocated as before, then 0x94910 bytes (Prism's 0x56800 + 0x10 for stretch.c's pointer + 0x1000 for the LFOs + 0x6000 for the USB audio ring + 0x4000 for the S950 filters + 0x22000 for the pad inserts + 0x100 for the clipper + 0x10000 for the EQ screen's RTA + 0x1000 for the filter's switch crossfade), pointer + check word stored",
+      allocs[:2] == [("line", 0x24076000, 192000), ("perm", 0x94910)] and e.r32(PMEM) & 0xFFFFFFFF == PRISM and e.r32(PCHECK) & 0xFFFFFFFF == PRISM ^ 0x5052534D, (allocs, hex(e.r32(PMEM)), hex(e.r32(PCHECK))))
+check("...then stretch.c's own area (a refusal here only turns the Stretch models off), its address in the block's last word",
+      len(allocs) == 3 and allocs[2][0] == "perm" and allocs[2][1] >= 0x40000 and e.r32(PRISM + 0x94900) == 0, allocs)
 check("the patched call in the delay constructor goes to master_alloc", e.uc.mem_read(0x0805462A, 4) != bytes.fromhex("16f029fa") and e.sym["master_alloc"] != 0)
 e.w32(PCHECK, 0x12345678)
 l, r = block(x)

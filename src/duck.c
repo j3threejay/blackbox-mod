@@ -70,6 +70,7 @@ struct duck_state {
 
 /* Replaces the call to the engine's control tick (FUN_08053164). */
 void lfo_tick(uint32_t now);
+void stretch_tick(void);         /* stretch.c: one pad's Stretch setting per block */
 void insert_tick(void);          /* insert.c: one pad's insert settings per block */
 void repeat_tick(uint8_t *engine, const uint32_t *bufs);   /* repeat.c: note repeat's due notes for the coming block */
 
@@ -141,6 +142,7 @@ int duck_block(uint8_t *engine, void *a, void *b)
     }
     lfo_tick(now);
     insert_tick();
+    stretch_tick();
     repeat_tick(engine, (const uint32_t *)a);
 #ifdef CPU_PROF
     uint32_t t1 = CYC;

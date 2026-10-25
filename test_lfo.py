@@ -68,10 +68,11 @@ e.stub(0x08093EF6, lambda: added.append((e.arg(1), e.arg(2))))
 e.call("lfo_defaults", 0x24073000, 0xDC, 0)
 check("pad defaults: stock's last entry, then LFO 2 = Sine, 1 bar, Free; LFO 3 = Random, 1/4, Retrig",
       added[:9] == [(0xDC, 0), (0x1A9, 4), (0x1AA, 5), (0x1AB, 0), (0x1AC, 0), (0x1AD, 8), (0x1AE, 8), (0x1AF, 1), (0x1B0, 0)], added)
-check("...then the pad's insert: Off, Pebble, Electra, the six shared knobs, the Gate's five, Input Off, the Transient's seven",
+check("...then the pad's insert: Off, Pebble, Electra, the six shared knobs, the Gate's five, Input Off, the Transient's seven, then Stretch = Stock and no clip selection (Start 0, End 0, Beats Auto)",
       added[9:] == [(0x1B6, 0), (0x1B7, 0), (0x1B8, 0), (0x1B9, 330), (0x1BA, 750), (0x1BB, 500), (0x1BC, 350), (0x1BD, 250), (0x1BE, 500),
                     (0x1C2, 800), (0x1C3, 0), (0x1C4, 0), (0x1C5, 200), (0x1C6, 0), (0x1C7, 0),
-                    (0x170, 0), (0x171, 400), (0x172, 0), (0x173, 500), (0x174, 500), (0x175, 0), (0x176, 1000)], added[9:])
+                    (0x170, 0), (0x171, 400), (0x172, 0), (0x173, 500), (0x174, 500), (0x175, 0), (0x176, 1000),
+                    (0x14C, 0), (0x15C, 0), (0x15D, 0), (0x15E, 0)], added[9:])
 check("a pad's settings store holds 96 entries (stock 64, of which 59 used; ours make 89 with the Transient): both places that size one",
       img[0x08093F26 - BASE:0x08093F28 - BASE] == bytes.fromhex("6021") and img[0x080949F0 - BASE:0x080949F2 - BASE] == bytes.fromhex("6021"))
 check("page 3 of the Sample and Multisample pad pages lists the eight knobs",

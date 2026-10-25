@@ -318,10 +318,17 @@ typedef float *(*buf_mono_fn)(void *buf);
 #define CLIP_SOURCE 0x24         /* pad -> its sample */
 #define CLIP_BACK   3            /* the fetch starts this many samples before the position */
 
-/* filter = the reading voice's filter object, put in the register stock leaves unused (clip_read_b, filter_thunk.S) */
-int clip_read(float rate, uint8_t *pad, uint8_t *filter, int32_t pos, int32_t pos_hi, int n, int *used, float *frac,
-              void *scratch, void *out, void **result)
+int stretch_read(float rate, uint8_t *pad, int32_t pos, int n, int *used, float *frac, void *out, void **result);
+
+/* filter = the reading voice's filter object, put in the register stock leaves unused (clip_read_b, filter_thunk.S).
+   A clip pad on a Stretch model (stretch.c) reads through it first. */
+static int read_any(float rate, uint8_t *pad, uint8_t *filter, int32_t pos, int32_t pos_hi, int n, int *used, float *frac,
+                    void *scratch, void *out, void **result)
 {
+    if (stretch_read(rate, pad, pos, n, used, frac, out, result) > 0) {
+        *(float *)(filter + OBJ_RATE) = rate;              /* where the output stage looks for it, as below */
+        return 1;
+    }
     uint8_t *mem;
     const struct machine *m = pad_machine(pad, &mem);
 #ifdef SLICE_DIAG
@@ -366,4 +373,38 @@ int clip_read(float rate, uint8_t *pad, uint8_t *filter, int32_t pos, int32_t po
     *used = idx - 4;
     *result = out;
     return 1;
+}
+
+int sel_end(const uint8_t *pad);   /* clipsel.c: where this pad's source ends (its selection's end), or INT32_MAX */
+
+/*
+ * The clip reader (see read_any). A clip with a selection must not sound past its end, which stock only ensures
+ * at the file's end: a slice that runs on (slower tempo, pitch up) would play what follows the selection. As stock
+ * does past the file: nothing at all once the position is 0xff past the end, else the frames from the end on silenced.
+ */
+int clip_read(float rate, uint8_t *pad, uint8_t *filter, int32_t pos, int32_t pos_hi, int n, int *used, float *frac,
+              void *scratch, void *out, void **result)
+{
+    float f0 = *frac;
+    int end = sel_end(pad);
+    if (end != 0x7fffffff && pos > end + 0xff)
+        return 0;
+    int r = read_any(rate, pad, filter, pos, pos_hi, n, used, frac, scratch, out, result);
+    if (r != 1 || end == 0x7fffffff || !(rate > 0.0f))
+        return r;
+    float k = ((float)(end - pos) - f0) / rate;          /* output frame k reads source pos + f0 + k x rate */
+    int k0 = k <= 0.0f ? 0 : (int)k + ((float)(int)k < k);
+    if (k0 >= n)
+        return r;
+    float *l = 0, *rr = 0;
+    if (fw_src_stereo(*(void **)(pad + CLIP_SOURCE)))
+        fw_buf_pair(*result, &l, &rr);
+    else
+        l = fw_buf_mono(*result);
+    for (int i = k0; i < n; i++) {
+        l[i] = 0.0f;
+        if (rr)
+            rr[i] = 0.0f;
+    }
+    return r;
 }

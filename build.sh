@@ -13,7 +13,7 @@ mkdir -p out out/obj
 
 # The files that live in bank 2. Leaf DSP only: nothing the engine reaches before bank 2 has been checked, and
 # nothing holding state that bank 1 needs at boot.
-BANK2_SRCS="prism confetti insert_dsp rev4 smash relapse motion tapescam splash_img transient fx2_room compm clip vhs filter_dsp s950 rta_dsp"   # smash relapse motion: 3.3.o, for room in bank 1; splash_img: 3.3.t, the boot graphic (data only)
+BANK2_SRCS="prism confetti insert_dsp rev4 smash relapse motion tapescam splash_img transient fx2_room compm clip vhs filter_dsp s950 rta_dsp stretch_dsp tempo_dsp"   # smash relapse motion: 3.3.o, for room in bank 1; splash_img: 3.3.t, the boot graphic (data only)
 # BANK 2 IS FOR LEAF DSP ONLY. A function the firmware reaches through a patched call site must stay in bank 1,
 # or a bad bank 2 faults before anything can check it - which is how 3.2.m's first cut would have boot-looped.
 # munchi.o holds munchi_process, munchi_register, munchi_list and fx_screen_msg, all hooks, so it stays in bank 1;
