@@ -42,13 +42,13 @@ const char fw_version[] = "JOE DIAG";             /* the diagnostic build for te
 #include "release.h"
 const char fw_version[] = RELEASE_NAME;
 #elif defined(CPU_PROF)
-const char fw_version[] = "3.4.m P";              /* 3.4.m + CPU_PROF: per-block section timings for the peak hunt (prof.c) */
+const char fw_version[] = "3.5.f P";              /* 3.5.f + CPU_PROF: per-block section timings for the peak hunt (prof.c) */
 #elif defined(SLICE_DIAG)
 const char fw_version[] = "3.3.j";                /* rc4 + SLICE_DIAG: per-trigger rows for the slicer crunch bug (filter.c) */
 #elif defined(FAULT_SHOW)
 const char fw_version[] = "3.3.g";                /* 3.3.e + FAULT_SHOW (3.3.f drew nothing: ARGB1555), for proving the diagnostic on the test unit */
 #else
-const char fw_version[] = "3.4.m";                /* 3.4.l + Beats reads "Guess" (not "Auto"); 3.4.l = 3.4.k + a new sample clears the selection on the paths that skip FUN_0809aa94; 3.4.k = 3.4.j + Beats knob = Beats + 1 (0 Detect, 1 Auto: -1 was unreachable on glass); 3.4.j = 3.4.i + detector job reset (first run after a boot) + Detect is opt in (Beats -> Detect); 3.4.i = 3.4.h + the Waveform tick collects a finished detection; 3.4.h = 3.4.g + auto tempo: retries, shows Detect.. / ~guess / Fail n, keeps his edits, re-detect (Beats -> Auto), clears on a new sample */
+const char fw_version[] = "3.5.f";                /* 3.5.f = 3.5.e + ChopShop Tempo row (1/2, x1, x2 on the detected tempo; kept in P_SEL_BEATS); 3.5.e = 3.5.d + ChopShop Roll cue (dice, Rolling.., n chops / Fail n; Roll starts mid-range); 3.5.d = 3.5.c + stretch fixes from testers (Smooth reach 640: bass clicks; Smooth side power at joins; Smooth searches staggered by slot; Keyframe interpolated extremum values: top end) + str_bank.prof cycle counters; 3.5.c = 3.5.b + entering ChopShop sets Stretch Cyclic (his call 10-26); 3.5.b = 3.5.a + Find / Random make 32 chops (were 16) + a new sample re-scans (Random / Find re-rolled the old file's scan: zero slices); 3.5.a = 3.4.m + ChopShop (pad mode: Beats / Find / Random chops, Roll, Gate) + Stretch on Slicer pads / Clip Sync = Slice (mk_spawn, str_clip marker branch); 3.4.m = 3.4.l + Beats reads "Guess" (not "Auto"); 3.4.l = 3.4.k + a new sample clears the selection on the paths that skip FUN_0809aa94; 3.4.k = 3.4.j + Beats knob = Beats + 1 (0 Detect, 1 Auto: -1 was unreachable on glass); 3.4.j = 3.4.i + detector job reset (first run after a boot) + Detect is opt in (Beats -> Detect); 3.4.i = 3.4.h + the Waveform tick collects a finished detection; 3.4.h = 3.4.g + auto tempo: retries, shows Detect.. / ~guess / Fail n, keeps his edits, re-detect (Beats -> Auto), clears on a new sample */
 #endif
 /* 1 = a public build: named, and without the raw USB peek / poke (test_usbdev.py and test_cpu.py ask). */
 #ifdef PUBLIC_BUILD

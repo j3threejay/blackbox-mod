@@ -380,7 +380,7 @@ if os.path.exists(LOOP):
     view(0, 0)
     u.w32(VIEW + 0x2390, len(TL_))
     u.w32(AREA + 28 + 6 * 24, PADE)                   # what setup leaves: pad 6's engine object
-    TJ = AREA + 293820                                # offsetof(struct str_bank, tj)
+    TJ = AREA + 297020                                # offsetof(struct str_bank, tj)
     r0 = u.r32(TJ + 156)
     bind_all()
     check("opening an empty Clip pad on the Waveform screen does NOT run the detector (opt in: decided 10-25)",
@@ -425,7 +425,7 @@ check("... turning it posts only Start (no End: the section runs to the file's e
 # like a detected tempo, glass test 10-25); "Detect.." / "Fail n" for the detector; Beats 0 reads "Guess"; others untouched
 TXT = []
 u.stub(0x080C3B98, lambda: TXT.append(u.cstr(u.arg(1))))
-TJ = AREA + 293820                                    # offsetof(struct str_bank, tj)
+TJ = AREA + 297020                                    # offsetof(struct str_bank, tj)
 REQ, SERVED, MISSES = TJ + 156, TJ + 160, TJ + 168
 CI6 = AREA + 28 + 6 * 24                              # str_clipinfo of pad 6: eng, frate, s, e, beats, have, fail
 

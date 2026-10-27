@@ -401,7 +401,7 @@ void sel_tempo_tick(struct str_bank *b)
     if (j->req != j->served) {
         int q = j->req_pad;
         uint8_t *eng = q >= 0 && q < 16 ? b->clip[q].eng : 0;
-        void *obj = eng && (int)pad_index(eng) == q && !eng[PAD_SLICER] ? *(void **)(eng + PAD_SOURCE) : 0;
+        void *obj = eng && (int)pad_index(eng) == q ? *(void **)(eng + PAD_SOURCE) : 0;   /* Clip or Slicer (ChopShop) */
         if (!obj) {
             /* setup has not run for this pad yet (3.4.g dropped the request here, silently): ask again next block */
             if (++j->misses < TEMPO_WAIT)
@@ -465,6 +465,12 @@ void sel_knob_text(void *text, const char *s)
         v--;
         do { b[--i] = (char)('0' + v % 10); v /= 10; } while (v && i);
         fw_text_set(text, b + i);
+        return;
+    }
+    if (id == 0x161) {                                  /* ChopShop's Roll (chopmode.c): its cue, not the number */
+        char buf[16];                                   /* the knob's view is not known here: the run's own pad (the
+                                                           tick, chopmode.c, checks the view's pad every frame) */
+        fw_text_set(text, chop_roll_text(CHOP_ANY_PAD, buf));
         return;
     }
     if (id != 0x3e4) {                                  /* K_BPM */
@@ -572,6 +578,34 @@ static int stored_beats(uint8_t *view)
 {
     struct str_clipinfo *ci = info_for(view);
     return ci && ci->have ? ci->beats : fw_setting(view + VIEW_STORE, P_SEL_BEATS);
+}
+
+/* chop.c: a detection for pad q (Clip or Slicer), and its answer once it is there: 1 = bpm / phase (frames) / the file's
+   rate set, -1 = it failed, 0 = not yet (or another pad's request replaced it). Taking it ends the job. */
+void sel_ask_pad(int q)
+{
+    struct str_bank *b = stretch_bank();
+    if (!b)
+        return;
+    b->tj.misses = 0;
+    b->tj.req_pad = q;
+    b->tj.req++;
+}
+
+int sel_take_pad(int q, float *bpm, float *phase, unsigned *frate)
+{
+    struct str_bank *b = stretch_bank();
+    if (!b)
+        return 0;
+    struct tempo_job *j = &b->tj;
+    if (j->served != j->req || j->pad != q || (j->state != TEMPO_DONE && j->state != TEMPO_FAILED))
+        return 0;
+    int ok = j->state == TEMPO_DONE && j->bpm > 0.0f;
+    j->state = TEMPO_IDLE;
+    *bpm = j->bpm;
+    *phase = j->phase;
+    *frate = j->frate;
+    return ok ? 1 : -1;
 }
 
 /* sel_knob_text's BPM word for the pad on this view (the BPM knob is only ever bound on the Waveform screen) */
@@ -894,11 +928,15 @@ static void sel_clear(void *store, int row, int col)
     }
 }
 
+void chop_invariant(void *store);   /* chopmode.c: the ChopShop flag only lives on a Slicer */
+
 void sel_reset_cell(void *app, void *ref)
 {
     fw_cell_reset(app, ref);
     uint16_t id = *(const uint16_t *)((const uint8_t *)ref + 4);       /* row << 4 | col */
-    sel_clear(fw_cell_store(app, ref), (id >> 4) & 0xf, id & 0xf);
+    void *store = fw_cell_store(app, ref);
+    sel_clear(store, (id >> 4) & 0xf, id & 0xf);
+    chop_invariant(store);
 }
 
 /*

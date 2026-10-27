@@ -35,7 +35,7 @@
 
 #define SM_N 1024
 #define SM_F 512
-#define SM_D 256
+#define SM_D STR_SM_REACH
 #ifndef SM_DEC
 #define SM_DEC 16                /* search: every 16th frame of the window in the coarse passes */
 #endif
@@ -102,14 +102,49 @@ static void head_read(const struct str_src *src, struct str_grain *h, float rate
     h->f = p - (float)adv;
 }
 
-/* (L + R) / 2 of n frames from pos into m (n <= HALF) */
-static void fetch_mid(const struct str_src *src, float *m, int n, int32_t pos, float *scratch)
+/* (L + R) / 2 of n frames from pos into m and, with s, (L - R) / 2 into s (stereo only). R stays in the fetch area's
+   second half until the next fetch. */
+static void fetch_ms(const struct str_src *src, float *m, float *s, int n, int32_t pos, float *scratch)
 {
     float *sr = scratch + HALF;
     src->fetch(src, m, src->stereo ? sr : 0, n, pos);
-    if (src->stereo)
+    if (!src->stereo)
+        return;
+    if (s)
+        for (int k = 0; k < n; k++) {
+            float l = m[k], r = sr[k];
+            m[k] = 0.5f * (l + r);
+            s[k] = 0.5f * (l - r);
+        }
+    else
         for (int k = 0; k < n; k++)
             m[k] = 0.5f * (m[k] + sr[k]);
+}
+
+static float sqrt_(float x)
+{
+#ifdef STR_HOST
+    return __builtin_sqrtf(x);
+#else
+    float r;
+    __asm__("vsqrt.f32 %0, %1" : "=t"(r) : "t"(x));
+    return r;
+#endif
+}
+
+/* normalised correlation of the side windows xs and (ym - yr) (= (L - R) / 2) over n points of stride 2, clamped
+   to 0..1 (an anti-phase join counts as none) */
+static float side_match(const float *xs, const float *ym, const float *yr, int n)
+{
+    float xy = 0.0f, xx = 1e-9f, yy = 1e-9f;
+    for (int k = 0; k < 2 * n; k += 2) {
+        float v = ym[k] - yr[k];
+        xy += xs[k] * v;
+        xx += xs[k] * xs[k];
+        yy += v * v;
+    }
+    float c = xy / sqrt_(xx * yy);
+    return c < 0.0f ? 0.0f : c > 1.0f ? 1.0f : c;
 }
 
 /* x . y and y . y over n points of stride S (n a multiple of 4): unrolled, the stride a constant */
@@ -135,30 +170,50 @@ DOT(dot_fine, SM_DEC2)
  * cross-correlation on (L + R) / 2. Lags every SM_STEP frames on every SM_DEC-th frame of the window, then every 4
  * around the best, then every 1 on every SM_DEC2-th frame. Settings from a sweep against the Signalsmith renders
  * (host/lsd.py, 10-24): a coarse lag step of 16 misses the match; 1-in-16 frames in the coarse passes costs nothing.
+ * SM_D 640 (was 256): a 41-55 Hz cycle is longer than +-256, so past ~-5 BPM the joins landed off phase (tester
+ * clicks, 10-25). Searching +-256 first and widening only on a poor match does NOT fix it: a near, slightly off-phase
+ * match still scores > 0.95 and still clicks (host, 10-26).
  */
-static int32_t wsola_search(const struct str_src *src, int32_t nat, int32_t target, float *scratch)
+static int32_t wsola_search(struct str_seg *g, const struct str_src *src, int32_t nat, int32_t target, float *scratch)
 {
     enum { W = SM_F, SPAN = 2 * SM_D + W };
+    _Static_assert(SPAN <= HALF, "y's R channel stays in the fetch area's second half");
     float *x = scratch + 2 * HALF, *y = x + W;           /* behind the fetch area (STR_SCRATCH_ALL) */
-    fetch_mid(src, x, W, nat, scratch);
-    fetch_mid(src, y, SPAN, target - SM_D, scratch);
+    float *xs = scratch, *yr = scratch + HALF;           /* x's side; y's R (left there by the fetch) */
+    fetch_ms(src, x, xs, W, nat, scratch);
+    fetch_ms(src, y, 0, SPAN, target - SM_D, scratch);
     float best = -1e30f;
     int bl = SM_D;
-    static const int8_t steps[3] = {SM_STEP, 4, 1}, reach[3] = {0, SM_STEP - 4, 3};
-    for (int pass = 0; pass < 3; pass++) {
-        int st = steps[pass], lo = pass ? bl - reach[pass] : 0, hi = pass ? bl + reach[pass] : 2 * SM_D;
+    for (int l = 0; l <= 2 * SM_D; l += SM_STEP) {      /* coarse */
+        float xy, ee;
+        dot_coarse(x, y + l, W / SM_DEC, &xy, &ee);
+        float c = xy * (xy < 0.0f ? -xy : xy) / ee;
+        if (c > best) { best = c; bl = l; }
+    }
+    static const int8_t steps[2] = {4, 1}, reach[2] = {SM_STEP - 4, 3};
+    for (int pass = 0; pass < 2; pass++) {
+        int st = steps[pass], lo = bl - reach[pass], hi = bl + reach[pass];
         if (lo < 0) lo = 0;
         if (hi > 2 * SM_D) hi = 2 * SM_D;
-        if (pass == 2) best = -1e30f;                    /* finer points: a new scale for the scores */
+        if (pass == 1) best = -1e30f;                    /* finer points: a new scale for the scores */
         for (int l = lo; l <= hi; l += st) {
             float xy, ee;
-            if (pass < 2) dot_coarse(x, y + l, W / SM_DEC, &xy, &ee);
-            else          dot_fine(x, y + l, W / SM_DEC2, &xy, &ee);
+            if (pass == 0) dot_coarse(x, y + l, W / SM_DEC, &xy, &ee);
+            else           dot_fine(x, y + l, W / SM_DEC2, &xy, &ee);
             float c = xy * (xy < 0.0f ? -xy : xy) / ee;
             if (c > best) { best = c; bl = l; }
         }
     }
+    g->cs = src->stereo ? side_match(xs, y + bl, yr + bl, W / 2) : 1.0f;
     return target - SM_D + bl;
+}
+
+/* Smooth's side gain for a join whose side matched c: incoming a, outgoing 1 - a, scaled so the power holds (c 1 =
+   1). Side only: lifting the mid the same way overshot drum peaks by up to 1.4 dB for 0.1 dB (host, 10-26). */
+static float join_gain(float a, float c)
+{
+    float b = 1.0f - a;
+    return 1.0f / sqrt_(a * a + b * b + 2.0f * a * b * c);
 }
 
 static void grain_render(struct str_seg *g, int model, const struct str_src *src, float rate, float ref_rate,
@@ -169,7 +224,11 @@ static void grain_render(struct str_seg *g, int model, const struct str_src *src
         g->cur.i = g->start;                             /* the first grain fades against itself: plain */
         g->cur.f = 0.0f;
         g->old = g->cur;
-        g->age = 0;
+        /* Smooth: every synced clip starts its slices on the same frame, so without this all their searches land in
+           the same engine block (tester peaks 10-25); about half the slices (by where they start in their file) run
+           half a hop ahead. The first grain is plain, so nothing is heard. */
+        g->age = model == STR_SMOOTH && (((uint32_t)g->start >> 6) & 1) ? hop / 2 : 0;
+        g->cs = 1.0f;
         g->fresh = 0;
     }
     int o = 0;
@@ -181,7 +240,7 @@ static void grain_render(struct str_seg *g, int model, const struct str_src *src
                 target -= (int32_t)((float)(F / 2) * rate);   /* centre the join on the grain's nominal start */
             g->old = g->cur;
             if (model == STR_SMOOTH)
-                target = wsola_search(src, g->cur.i, target, scratch);
+                target = wsola_search(g, src, g->cur.i, target, scratch);
             g->cur.i = target;
             g->cur.f = model == STR_SMOOTH ? g->cur.f : r - (float)(int32_t)r;   /* Smooth: keep the matched phase */
             g->age = 0;
@@ -197,6 +256,16 @@ static void grain_render(struct str_seg *g, int model, const struct str_src *src
             /* a linear segment of the fade per chunk: Smooth's sin^2 over <= 240 of 512 frames, < 0.5 % off */
             head_read(src, &g->cur, rate, cf, dl, dr, a0, dg, 0, scratch);
             head_read(src, &g->old, rate, cf, dl, dr, 1.0f - a0, -dg, 1, scratch);
+            if (model == STR_SMOOTH && dr && g->cs < 0.9f) {   /* above 0.9 the lift is < 0.2 dB: skip */
+                /* the search aligns the mid; the side's unmatched part adds as power, not amplitude (tester: "the
+                   stereo field becomes more constricted", 10-25): lift the side by its own match */
+                float s0 = join_gain(a0, g->cs), ds = (join_gain(a1, g->cs) - s0) / (float)cf;
+                for (int k = 0; k < cf; k++) {
+                    float m = 0.5f * (dl[k] + dr[k]), s = 0.5f * (dl[k] - dr[k]) * (s0 + ds * (float)k);
+                    dl[k] = m + s;
+                    dr[k] = m - s;
+                }
+            }
             if (cf < c)
                 head_read(src, &g->cur, rate, c - cf, dl + cf, dr ? dr + cf : 0, 1.0f, 0.0f, 0, scratch);
         } else {
@@ -238,11 +307,12 @@ static void copy_words(void *dst, const void *src, unsigned bytes)
 static int sgnf(float v) { return (v > 0.0f) - (v < 0.0f); }
 static float fabsf_(float v) { return v < 0.0f ? -v : v; }
 
+/* The extremum's value: Catmull-Rom between p0 and p1 at t. The paper's cubic B-spline APPROXIMATES (it shrinks
+   sample-rate peaks: -1.5..-2.2 dB above 4 kHz on drum loops, tester 10-25); this passes through the samples. */
 static float bspline(float pm1, float p0, float p1, float p2, float t)
 {
-    float t2 = t * t, t3 = t2 * t, u = 1.0f - t;
-    return (pm1 * u * u * u + p0 * (3.0f * t3 - 6.0f * t2 + 4.0f) +
-            p1 * (-3.0f * t3 + 3.0f * t2 + 3.0f * t + 1.0f) + p2 * t3) * (1.0f / 6.0f);
+    float c1 = 0.5f * (p1 - pm1), c3 = 1.5f * (p0 - p1) + 0.5f * (p2 - pm1), c2 = pm1 - p0 + c1 - c3;
+    return ((c3 * t + c2) * t + c1) * t + p0;
 }
 
 static uint32_t *kcount(struct str_seg *g, int s) { return s == SL ? &g->kf.m_l : &g->kf.m_r; }
@@ -275,7 +345,7 @@ static void kf_analyse(struct str_seg *g, int s, const float *x, int32_t base, i
             if (n - last_n >= KF_GAP && n < len - 1) {   /* gap keyframe */
                 uint32_t p = (uint32_t)n << 8;
                 if (p > g->kf.last[s]) {
-                    vprev = (x1 + 4.0f * q[0] + x3) * (1.0f / 6.0f);
+                    vprev = q[0];                       /* the sample itself (was B-spline smoothed) */
                     kf_put(g, s, p, vprev);
                     last_n = n;
                 }
@@ -300,7 +370,7 @@ static void kf_analyse(struct str_seg *g, int s, const float *x, int32_t base, i
         if (!saved && n - last_n >= KF_GAP && n < len - 1) {
             uint32_t p = (uint32_t)n << 8;
             if (p > g->kf.last[s]) {
-                vprev = (x1 + 4.0f * x2 + x3) * (1.0f / 6.0f);
+                vprev = x2;
                 kf_put(g, s, p, vprev);
                 last_n = n;
             }
@@ -660,8 +730,11 @@ typedef int (*buf_chans_fn)(void *buf, float **left, float **right);
 #define SEG_END      0x10         /* s64, 0 = none (the last slice has one: stock plays it at its own speed) */
 #define SEG_SLICE    0x34
 
+#define DWT_CYCCNT (*(volatile uint32_t *)0xe0001004u)   /* cpu.c turns it on at boot, every build */
+
 static void fw_src_fetch(const struct str_src *s, float *l, float *r, int n, int32_t pos)
 {
+    uint32_t t0 = DWT_CYCCNT;
     int lead = pos < s->lo ? s->lo - pos : 0;
     if (lead > n) lead = n;
     int32_t end = pos + n, tail = end > s->len ? end - (pos > s->len ? pos : s->len) : 0;
@@ -673,11 +746,33 @@ static void fw_src_fetch(const struct str_src *s, float *l, float *r, int n, int
         if (r) fw_fetch2(s->obj, l + lead, r + lead, mid, pos + lead);
         else   fw_fetch(s->obj, l + lead, mid, pos + lead, 0);
     }
+    if (s->prof) {
+        s->prof[0] += DWT_CYCCNT - t0;
+        s->prof[1] += (uint32_t)n;
+    }
+}
+
+/* A folded marker slice (stretch.c mk_spawn) that falls back to stock past its source end: silence, as stock's own
+   tail was, never the next slice's audio. Bookkeeping as stock's reader. */
+static int str_quiet(void *out, void *obj, float rate, int n, int *used, float *frac, void **result)
+{
+    float *l, *r = 0;
+    if (fw_src_stereo(obj)) fw_buf_pair(out, &l, &r);
+    else l = fw_buf_mono(out);
+    for (int k = 0; k < n; k++) { l[k] = 0.0f; if (r) r[k] = 0.0f; }
+    float p = *frac + (float)n * rate;
+    int u = (int)p;
+    *used = u;
+    *frac = p - (float)u;
+    *result = out;
+    return 1;
 }
 
 /*
  * One read of a clip segment through a model. Returns 1 = done (out, used, frac, result written as stock's reader
  * would), -1 = not ours: stock reads it. mem = this file's SDRAM area (stretch.h, struct str_bank).
+ * Two kinds of slice: a Clip pad's grid slice (Sync on, n slices: sized from pad+0x1fc / 0x204), and a marker slice
+ * (Slicer with Sync on, Clip on Sync = Slice: sized by stock at the spawn, recorded by stretch.c mk_spawn).
  */
 int str_clip(uint8_t *mem, uint8_t *pad, int model, float rate, int32_t pos, int n, int *used, float *frac, void *out,
              void **result)
@@ -685,30 +780,63 @@ int str_clip(uint8_t *mem, uint8_t *pad, int model, float rate, int32_t pos, int
     struct str_bank *b = (struct str_bank *)mem;
     if (model <= STR_STOCK || model >= STR_MODELS || !(rate > 0.0f) || n <= 0)
         return -1;
-    if (!pad[PAD_SYNC_ON] || pad[PAD_SLICER] || *(int32_t *)(pad + PAD_DIVS) <= 1 ||
-        *(int32_t *)(pad + PAD_STEP) == 0xf0000)
-        return -1;                                       /* not stretching, or the marker path: stock */
-    float sps = *(float *)(pad + PAD_SPS), slot = *(float *)(pad + PAD_SLOT);
-    if (!(sps > 1.0f) || !(slot > 1.0f))
-        return -1;
     void *obj = *(void **)(pad + PAD_SOURCE);
     if (!obj)
         return -1;
-    /* Every pad sample streams from the card through 8192-frame cached blocks (stretch_re.md 8): a read that hits a
-       block not yet loaded gets zeros and queues it, exactly as stock's own reads do. The models read forward near
-       the slice's reference head (Smooth +-768 frames, Keyframe's analysis up to 2400 ahead; Keyframe's splices
-       replay keyframes, not the source), and every read queues the block it ends in and the next two. */
-    uint8_t *seg = 0;
-    for (int i = 0; i < 4; i++) {
-        uint8_t *s = pad + PAD_SEG + i * 0x70;
-        if (s[SEG_ACTIVE] && *(int32_t *)(s + SEG_POS) == pos) { seg = s; break; }
+    /* the segment stock is reading: frac is its seg + 0x1c (BL @0x08066622; SLICER_PLAYBACK_RE.md 2) */
+    uint8_t *seg = (uint8_t *)frac - 0x1c;
+    int32_t d = (int32_t)(seg - (pad + PAD_SEG));
+    const struct str_mark *m = 0;
+    if (d >= 0 && d < 4 * 0x70 && d % 0x70 == 0) {
+        uint32_t id = *(const uint32_t *)(pad + 0x18);
+        const struct str_mark *c = &b->mk[((id >> 8) & 3) * 4 + (id & 3)][d / 0x70];
+        if (c->kind != MK_NONE)
+            m = c;
     }
-    if (!seg || *(int64_t *)(seg + SEG_END) != 0)
-        return -1;
-    int slice = *(int32_t *)(seg + SEG_SLICE);
-    /* the clip's selection (clipsel.c leaves it in 0x238 / 0x23c; stock's 0 / file length when there is none) */
-    int32_t len = fw_src_len(obj), lo = *(int32_t *)(pad + PAD_SEL_S), hi = *(int32_t *)(pad + PAD_SEL_E);
-    if (lo < 0 || hi > len || hi - lo < 2) { lo = 0; hi = len; }
+    int32_t len = fw_src_len(obj), lo, hi, start;
+    int slice;
+    float span, ref;
+    if (m) {
+        if (*(int64_t *)(seg + SEG_END) != 0)
+            return -1;
+        slice = *(int32_t *)(seg + SEG_SLICE);
+        start = m->start;
+        span = (float)m->span;
+        ref = span / (float)m->slot;
+        lo = 0;
+        hi = len;
+        if (m->kind == MK_CUT) {                         /* PlayThru off: nothing past the slice, as stock */
+            lo = start;
+            hi = start + m->span < len ? start + m->span : len;
+        }
+    } else {
+        if (!pad[PAD_SYNC_ON] || pad[PAD_SLICER] || *(int32_t *)(pad + PAD_DIVS) <= 1 ||
+            *(int32_t *)(pad + PAD_STEP) == 0xf0000)
+            return -1;                                   /* not stretching, or a marker slice we did not record: stock */
+        float sps = *(float *)(pad + PAD_SPS), slot = *(float *)(pad + PAD_SLOT);
+        if (!(sps > 1.0f) || !(slot > 1.0f))
+            return -1;
+        /* Every pad sample streams from the card through 8192-frame cached blocks (stretch_re.md 8): a read that hits
+           a block not yet loaded gets zeros and queues it, exactly as stock's own reads do. The models read forward
+           near the slice's reference head (Smooth +-768 frames, Keyframe's analysis up to 2400 ahead; Keyframe's
+           splices replay keyframes, not the source), and every read queues the block it ends in and the next two. */
+        seg = 0;
+        for (int i = 0; i < 4; i++) {
+            uint8_t *s = pad + PAD_SEG + i * 0x70;
+            if (s[SEG_ACTIVE] && *(int32_t *)(s + SEG_POS) == pos) { seg = s; break; }
+        }
+        if (!seg || *(int64_t *)(seg + SEG_END) != 0)
+            return -1;
+        slice = *(int32_t *)(seg + SEG_SLICE);
+        /* the clip's selection (clipsel.c leaves it in 0x238 / 0x23c; stock's 0 / file length when there is none) */
+        lo = *(int32_t *)(pad + PAD_SEL_S);
+        hi = *(int32_t *)(pad + PAD_SEL_E);
+        if (lo < 0 || hi > len || hi - lo < 2) { lo = 0; hi = len; }
+        start = lo + (int32_t)((float)slice * sps + 0.5f);
+        span = sps;
+        ref = sps / slot;
+    }
+    int quiet = m && m->folded && pos >= m->start + m->span;   /* a fallback here plays silence, not the next slice */
     b->seq++;
     /* this segment's slot: the one that has it, else the stalest free one */
     int k = -1, oldest = -1;
@@ -724,28 +852,38 @@ int str_clip(uint8_t *mem, uint8_t *pad, int model, float rate, int32_t pos, int
         o = &b->own[k];
         if (o->model != (uint8_t)model)
             o->stock = 1;                                /* another model picked mid-slice: stock until the next one */
-        if (o->stock) { o->next = pos + (int32_t)(*frac + (float)n * rate); o->seq = b->seq; return -1; }
+        if (o->stock) {
+            o->next = pos + (int32_t)(*frac + (float)n * rate);
+            o->seq = b->seq;
+            return quiet ? str_quiet(out, obj, rate, n, used, frac, result) : -1;
+        }
     } else {
         if (k < 0) k = oldest;
         if (k < 0)
-            return -1;                                   /* every slot busy: stock */
+            return quiet ? str_quiet(out, obj, rate, n, used, frac, result) : -1;   /* every slot busy: stock */
         o = &b->own[k];
         o->seg = seg;
         o->slice = slice;
         o->model = (uint8_t)model;
-        int32_t start = lo + (int32_t)((float)slice * sps + 0.5f);
         o->stock = (uint8_t)(pos - start > 2 || start - pos > 2);   /* joined mid-slice (model switched on): stock
                                                                        until the next slice */
         b->st[k].magic = 0;
         o->start = pos;
-        if (o->stock) { o->next = pos + (int32_t)(*frac + (float)n * rate); o->seq = b->seq; return -1; }
+        if (o->stock) {
+            o->next = pos + (int32_t)(*frac + (float)n * rate);
+            o->seq = b->seq;
+            return quiet ? str_quiet(out, obj, rate, n, used, frac, result) : -1;
+        }
     }
     o->seq = b->seq;
-    struct str_src src = { obj, lo, hi, fw_src_stereo(obj), fw_src_fetch };
+    uint32_t t0 = DWT_CYCCNT;
+    struct str_src src = { obj, lo, hi, fw_src_stereo(obj), fw_src_fetch, b->prof };
     float *ol, *orr = 0;
     if (src.stereo) fw_buf_pair(out, &ol, &orr);
     else ol = fw_buf_mono(out);
-    str_render(&b->st[k], model, &src, o->start, sps, rate, sps / slot, ol, orr, n, b->scratch);
+    str_render(&b->st[k], model, &src, o->start, span, rate, ref, ol, orr, n, b->scratch);
+    b->prof[2] += DWT_CYCCNT - t0;
+    b->prof[3] += (uint32_t)n;
     float p = *frac + (float)n * rate;                   /* the source stock would have used: same bookkeeping */
     int u = (int)p;
     *used = u;

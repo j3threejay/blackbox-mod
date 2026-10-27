@@ -13,13 +13,16 @@
 #define STRETCH_H
 #include <stdint.h>
 #include "tempo.h"
+#include "chop.h"
 
 enum { STR_STOCK, STR_SMOOTH, STR_KEYFRAME, STR_CYCLIC, STR_MODELS };
 
-#define STR_MAGIC 0x53545232u    /* "STR1": bump with the layout */
+#define STR_MAGIC 0x53545233u    /* "STR3": bump with the layout (STR3: + cs, the join's side match) */
 #define STR_KF_RING 512          /* keyframes kept per set (power of two) */
 #define STR_SCRATCH 4096         /* the fetch area: L in the first half, R in the second */
-#define STR_SCRATCH_ALL (STR_SCRATCH + 512 + 1024)   /* floats the caller passes: + Smooth's two search windows */
+#define STR_SM_REACH 640        /* Smooth's search, frames each way: more than half a 41 Hz cycle (tester bass clicks 10-25) */
+#define STR_SCRATCH_ALL (STR_SCRATCH + 512 + 2 * STR_SM_REACH + 512)   /* floats the caller passes: + Smooth's two
+                                                                         search windows */
 
 /* Where the source comes from. Firmware: stock's sample object and its fetch; Mac: two arrays. */
 struct str_src {
@@ -28,6 +31,7 @@ struct str_src {
     int stereo;
     /* n frames from pos into l / r (r may be 0 for mono); anything outside lo..len-1 reads as 0 */
     void (*fetch)(const struct str_src *s, float *l, float *r, int n, int32_t pos);
+    uint64_t *prof;                                  /* firmware: str_bank.prof (cycles in the fetch, frames); host: 0 */
 };
 
 struct str_grain {                                   /* a read head: position = i + f */
@@ -60,6 +64,8 @@ struct str_seg {
     /* grain engine (Smooth, Cyclic) */
     struct str_grain cur, old;
     int32_t age;                                     /* output frames since cur started */
+    float cs;                                        /* Smooth: how well the join's side matched (0..1): the fade keeps
+                                                        the power of what did not */
     /* keyframe engine */
     struct {
         uint32_t m_l, m_r;                           /* keyframes written so far, per set */
@@ -81,7 +87,7 @@ struct str_seg {
 #define STR_PTR_OFFSET (0x56800u + 0x3e100u)   /* in master.c's block: the area's address */
 #define STR_SLOTS 32
 #define STR_STALE 256            /* reads (of any clip segment) without a visit before a slot is free again */
-#define STR_BANK_MAGIC 0x53544235u   /* "STB5" */
+#define STR_BANK_MAGIC 0x53544238u   /* "STB8": + prof; Smooth's windows wider (STR_SM_REACH) */
 struct str_own {
     const uint8_t *seg;          /* the stock segment it follows */
     uint32_t seq;                /* the read it was last visited on */
@@ -99,6 +105,13 @@ struct str_audition {             /* clipsel.c: a Clip pad playing while stopped
     int64_t quant;
     uint8_t sync, on, spare[2];
 };
+/* A slice spawned on the marker path (Slicer with Sync on, Clip with Sync = Slice), as stock sized it at the spawn
+   (FUN_08065290's start / span / slot: research/slicer/SLICER_PLAYBACK_RE.md 1.4). kind 0 = none: the old path. */
+enum { MK_NONE, MK_CUT, MK_THRU, MK_CLIP };   /* Slicer PlayThru off (source window = the slice) / on / Clip markers */
+struct str_mark {
+    int32_t start, span, slot;   /* source frames at the slice's start, its source length, its length on the clock */
+    uint8_t kind, folded, spare[2];   /* folded: stock's silent tail was moved into the hold (the model fills it) */
+};
 struct str_bank {
     uint32_t magic, seq, scan;
     uint8_t model[16];           /* each pad's Stretch, as stretch_tick last read it */
@@ -109,6 +122,12 @@ struct str_bank {
     float scratch[STR_SCRATCH_ALL];
     struct str_seg st[STR_SLOTS];
     struct tempo_job tj;         /* clipsel.c: one tempo detection at a time, a step per block */
+    struct str_mark mk[16][4];   /* stretch.c mk_spawn: per pad, per stock segment, a marker slice (Slicer / Sync = Slice) */
+    struct chop_job cj;          /* chop.c: one whole-file beat scan at a time (ChopShop Find / Random) */
+    struct chop_run cr;          /* chop.c: the chop operation in flight */
+    /* every build (bank 2 is the same for P and normal): DWT cycles in the models, read over USB. [0] cycles in the
+       source fetch, [1] frames fetched (per channel pair), [2] cycles in str_clip in all, [3] output frames rendered */
+    uint64_t prof[4];
 };
 
 /* bank 2: one clip segment read through a model; -1 = stock reads it */

@@ -295,5 +295,138 @@ check(f"{free} free slots ({held} still held by recent segments): {free} new seg
       "slot is busy and the rest fall back to stock's reader",
       all(o == OUT for o in outs[:free]) and all(o != OUT for o in outs[free:]), [hex(o) for o in outs])
 
+# --- marker slices: Slicer pads (Sync on) and Clip on Sync = Slice (stretch.c mk_spawn + str_clip's marker branch)
+MK = AREA + 342248                                # offsetof(struct str_bank, mk), arm-none-eabi; 16 B per [pad][seg]
+HOLD, TAIL = 0x28, 0x30
+
+
+def mk(q, i):
+    return struct.unpack("<iiiBB", e.uc.mem_read(MK + (q * 4 + i) * 16, 14))
+
+
+SPAWNS = []
+
+
+def fake_spawn():                                 # FUN_08065290: claims seg 1, sizes it the slow way (natural < slot)
+    sp = e.uc.reg_read(UC_ARM_REG_SP)
+    SPAWNS.append(tuple(e.r32(sp + 4 * k) for k in range(6)))
+    s = SEG + 1 * 0x70
+    e.w32(s + HOLD, 4800)
+    e.w32(s + TAIL, 900)
+    e.uc.reg_write(UC_ARM_REG_R0, 1)
+
+
+e.stub(0x08065290, fake_spawn)
+
+
+def spawn(pos, slot, span, slicer=1, thru=0):
+    pad(slicer=slicer)
+    e.uc.mem_write(PAD + 0x255, bytes([thru]))
+    for k, v in enumerate((pos, slot, 0, 0, span, 0)):   # call() passes r0-r3 only: the rest on the stack, as stock
+        e.w32(STACK + 4 * k, v)
+    e.call("mk_spawn", PAD, 0, 0, 3)
+    return e.uc.reg_read(UC_ARM_REG_R0)
+
+
+setting(1)
+OWN1 = OWN + 0                                    # a model slot that still holds seg 1 from its last slice
+e.w32(OWN1, SEG + 1 * 0x70)
+r = spawn(18000, 6000, 5200)
+rec = mk(Q, 1)
+check("mk_spawn: stock's spawn runs with the same arguments and its result comes back",
+      r == 1 and SPAWNS[-1] == (18000, 6000, 0, 0, 5200, 0), (r, SPAWNS[-1:]))
+check("... a Slicer slice (PlayThru off) is recorded as stock sized it: start 18000, span 5200, slot 6000, kind CUT",
+      rec[:4] == (18000, 5200, 6000, 1), rec)
+check("... stock's silent tail (900) is folded into the hold (4800 -> 5700): the model fills the slot, lifetime unchanged",
+      e.r32(SEG + 0x70 + HOLD) == 5700 and e.r32(SEG + 0x70 + TAIL) == 0 and rec[4] == 1,
+      (e.r32(SEG + 0x70 + HOLD), e.r32(SEG + 0x70 + TAIL), rec))
+check("... the model slot that held the respawned segment is free again", e.r32(OWN1) == 0, hex(e.r32(OWN1)))
+spawn(18000, 6000, 5200, thru=1)
+check("PlayThru on: kind THRU", mk(Q, 1)[3] == 2, mk(Q, 1))
+spawn(18000, 6000, 5200, slicer=0)
+check("a Clip on Sync = Slice: kind CLIP", mk(Q, 1)[3] == 3, mk(Q, 1))
+spawn(18000, 900, 800)
+check("a slice shorter than the model's hop (900 frames): no record, no fold: stock plays it",
+      mk(Q, 1)[3] == 0 and e.r32(SEG + 0x70 + HOLD) == 4800 and e.r32(SEG + 0x70 + TAIL) == 900,
+      (mk(Q, 1), e.r32(SEG + 0x70 + TAIL)))
+setting(0)
+spawn(18000, 6000, 5200)
+check("Stretch Stock: no record, no fold", mk(Q, 1)[3] == 0 and e.r32(SEG + 0x70 + TAIL) == 900, mk(Q, 1))
+
+
+def readm(pos, frac, rate, segi, n=N):
+    """read() with frac in the segment (seg + 0x1c), as stock passes it at BL @0x08066622"""
+    fr = SEG + segi * 0x70 + 0x1C
+    for buf, d, rr in ((SCR, SCRD, SCRR), (OUT, OUTD, OUTR)):
+        e.uc.mem_write(buf, struct.pack("<IIIIBB", 4096, 4096, d, rr, 0, 1))
+    e.uc.mem_write(OUTD, bytes(4 * n))
+    e.uc.mem_write(OUTR, bytes(4 * n))
+    e.uc.mem_write(VARS, struct.pack("<iI", -1, 0))
+    e.uc.mem_write(fr, struct.pack("<f", frac))
+    e.uc.reg_write(UC_ARM_REG_S0, fstr(rate))
+    for k, v in enumerate((n, VARS, fr, SCR, OUT, VARS + 4)):
+        e.w32(STACK + 4 * k, v)
+    e.fetches.clear()
+    e.uc.reg_write(UC_ARM_REG_R11, VOICE)
+    e.call("clip_read_b", PAD, 0, pos, 0, count=50_000_000)
+    ok = e.uc.reg_read(UC_ARM_REG_R0)
+    used, res = struct.unpack("<iI", e.uc.mem_read(VARS, 8))
+    nfrac = struct.unpack("<f", e.uc.mem_read(fr, 4))[0]
+    dl, dr = (OUTD, OUTR) if res == OUT else (SCRD, SCRR)
+    return (ok, used, nfrac, list(struct.unpack(f"<{n}f", e.uc.mem_read(dl, 4 * n))),
+            list(struct.unpack(f"<{n}f", e.uc.mem_read(dr, 4 * n))), res)
+
+
+def playm(start, span, slot, rate, blocks, model, thru):
+    setting(model)
+    spawn(start, slot, span, thru=thru)
+    segment(1, start, 3)
+    pos, frac, l, r, fetched = start, 0.0, [], [], []
+    for _ in range(blocks):
+        ok, used, frac, bl, br, res = readm(pos, frac, rate, 1)
+        fetched += e.fetches
+        l += bl
+        r += br
+        pos += used
+        e.uc.mem_write(SEG + 0x70 + 8, struct.pack("<q", pos))
+    return l, r, fetched
+
+
+def macm(start, span, slot, rate, model, n):
+    ol, orr = (ctypes.c_float * n)(), (ctypes.c_float * n)()
+    L.render_segment(LA, RA, LEN, start, span, rate, span / slot, model, ol, orr, n, N)
+    return list(ol), list(orr)
+
+
+for model, name in ((1, "Smooth"), (2, "Keyframe"), (3, "Cyclic")):
+    l, r, _ = playm(18000, 5200, 6000, 1.0, 22, model, thru=1)
+    ml, mr = macm(18000, 5200, 6000, 1.0, model, 22 * N)
+    err = max(max(abs(a - b) for a, b in zip(l, ml)), max(abs(a - b) for a, b in zip(r, mr)))
+    check(f"Slicer slice (PlayThru on), {name}: reads through the model = the Mac build on start 18000 / span 5200 / "
+          f"slot 6000 (max diff {err:.2e}), not silent", err < 2e-4 and max(abs(v) for v in l) > 0.05, err)
+    l, r, fetched = playm(18000, 5200, 6000, 1.0, 22, model, thru=0)
+    inside = all(p >= 18000 - 1 and p + n <= 23200 + 1 for p, n in fetched)
+    check(f"Slicer slice (PlayThru off), {name}: never fetches outside the slice [18000, 23200)", inside and bool(fetched),
+          [f for f in fetched if not (f[0] >= 17999 and f[0] + f[1] <= 23201)][:3])
+
+# a folded slice that falls back to stock (Stretch changed mid-slice) past its source end: silence, not slice 4
+setting(1)
+spawn(18000, 6000, 5200)
+segment(1, 18000, 3)
+pos, frac = 18000, 0.0
+for _ in range(4):
+    ok, used, frac, _, _, _ = readm(pos, frac, 1.0, 1)
+    pos += used
+    e.uc.mem_write(SEG + 0x70 + 8, struct.pack("<q", pos))
+setting(2)                                         # Keyframe now: this slice goes to stock for the rest
+e.uc.mem_write(SEG + 0x70 + 8, struct.pack("<q", 23300))
+ok, used, frac, l, r, res = readm(23300, 0.0, 1.0, 1)
+check("folded slice, Stretch changed mid-slice, read past the slice's source end (23300 > 23200): silence (not slice 4)",
+      ok == 1 and max(abs(v) for v in l + r) == 0.0 and used == 256, (ok, used, max(abs(v) for v in l + r)))
+
+img = open(IMAGE, "rb").read()
+check("Slicer POS page: 'Stretch:' (0x14c) in the last slot of both table copies",
+      all(struct.unpack_from("<H", img, a - 0x08040000)[0] == 0x14C for a in (0x080EF836, 0x080EF12E)))
+
 print(f"\n{fails} failure(s)" if fails else "\nall passed")
 sys.exit(1 if fails else 0)

@@ -23,6 +23,8 @@ from emu import Emu
 
 IMG = "out/solo+slice+duck+chord+cond+filter+cpu+od+comp+seqfix+fx2+munchi+master+fault+cave/BLACKBOX.bin"
 e = Emu(IMG, "out/cave.elf")
+e.uc.mem_map(0x38800000, 0x1000)                   # backup SRAM + the RCC page: theme_compose now runs chop_poll
+e.uc.mem_map(0x58024000, 0x1000)
 PAL, GUI = 0x24000000, 0x24050000
 fails = 0
 

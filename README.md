@@ -15,6 +15,28 @@ out (new FX, fixes). That's all the list is for.
 TOOLS shows `JOEBOX 2` as the version. Still two files on the card, `BLACKBOX.bin` and `BBEXTRA.BIN`, and the first
 boot restarts itself once while the second file goes in.
 
+New in beta 4:
+
+- **ChopShop, a new pad mode.** Pick ChopShop from a pad's Mode list (it sits between Slicer and Granular). It's a
+  Slicer underneath, so a project still opens on stock as a plain Slicer, but it chops the file for you from its
+  detected tempo. On the POS page, the top three rows are ours:
+  - **Chop:** 1/4, 1/2, Beat, 2 Beats or Bar slices the whole file on the beat grid from beat one, even when the
+    file starts mid-beat. **Find** picks 32 chops across the track, the hardest hits in each part of it. **Random**
+    picks 32 random beats. Picking one runs it.
+  - **Roll:** turn it either way for a new set of Find or Random chops. A little dice shows it rolling, then how
+    many chops it placed.
+  - **Tempo:** 1/2, x1 or x2. If the detector read the song at half or double time, set it here and the chops and
+    Beat Count follow. It sticks until you load a new sample.
+  Entering ChopShop sets Launch Mode to Gate, Sync on and Stretch to Cyclic. Loading a new sample onto a ChopShop pad
+  chops it again on its own.
+- **Stretch on Slicer pads.** The Stretch row (Stock, Smooth, Keyframe, Cyclic) is now on Slicer pads with Sync on,
+  and on Clip pads with Sync set to Slice, so each slice gets stretched to the project tempo, not just moved.
+- **Stretch fixes from tester reports.** Smooth no longer clicks on low bass notes when you slow a clip down more
+  than about 5 BPM. Smooth keeps the stereo width it used to lose a little of, and Keyframe keeps its top end
+  (about 2 dB above 4 kHz was going missing). When many synced clips are on Smooth, their heaviest moments no longer
+  all land on the same instant.
+- **Install:** two files again, because the second file changed. Copy both and expect the one restart.
+
 New in beta 3:
 
 - **Time-stretch models for Clip pads.** On a Clip pad's POS page, under Sync, there's a new **Stretch** row: Stock,
@@ -120,7 +142,13 @@ From 3.1.n and earlier:
 - Detect isn't always right. It can land on double or half the tempo (one click on BPM fixes that), and on some
   material it picks something else entirely. Then set Beats yourself. "Fail 3" means it couldn't find a steady tempo
   at all, which is normal on short samples and anything without a beat.
-- Stretch, the Waveform section knobs and Detect are on Clip pads only, not Slicer pads.
+- The Waveform section knobs and Detect are on Clip pads only. Stretch is on Clip and Slicer pads.
+- Smooth costs more CPU than the other stretch models, and more than in beta 3 (the bass fix searches further).
+  Cyclic is the light one when a lot of clips need stretching.
+- Polyphonic pads with long releases add up fast: every ringing note is a voice, and Fidelity modes and
+  saturation run on each one. Heavy inserts (Phaser) on top of that will overload. Resample if you can.
+- ChopShop's Beat and 1/4 to Bar chops stop at 128 slices, the Slicer's limit, so on a long song Beat covers the
+  first 128 beats. Bar or Find covers the whole song.
 - Relapse with Recall up can play a short piece of its memory a few seconds after everything has gone quiet. That is
   Recall doing its job, but it can sound like a click.
 

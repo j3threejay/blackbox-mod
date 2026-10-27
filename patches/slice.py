@@ -49,6 +49,7 @@ PATCHES = [
     hook(0x080B06E4, 0x080C3B98, "sel_knob_text"),
     # ... the Waveform view's per-frame tick (vtable slot 0): a finished detection lands without waiting for a redraw
     (0x080F0004, word(0x080A6F21), word(sym["sel_view_tick"] | 1)),
+    (0x080F1284, word(0x080B9591), word(sym["chop_view_tick"] | 1)),   # the pad view's tick: the Roll row's cue
     # ... a new sample clears the selection: every place stock resets its own Start / Length (FUN_0809aa94), but the
     # project loader's call for empty pads (0x0809CB78)
     hook(0x0809D618, 0x0809AA94, "sel_reset_cell"),     # recording done (x3)
@@ -63,4 +64,13 @@ PATCHES = [
     hook(0x080A0B6C, 0x08093ECC, "sel_assign_clear"),   # a sample assigned to a pad that had one (0x90 = 0)
     hook(0x0809D622, 0x08093ECC, "sel_assign_clear"),   # recording done (0x95), after a reset
     hook(0x0809D686, 0x08093ECC, "sel_assign_clear"),   # recording done (0x95) into a pad already in Clip mode
+    # ChopShop (src/chopmode.c, research/slicer/MODE_LIST_RE.md): the Mode list gets a 7th entry (Slicer + flag)
+    (0x0808D0E4, word(0x080EC87C), word(sym["chop_mode_names"])),       # the names: our 7-entry table
+    (0x0808CF0E, bytes.fromhex("0621"), bytes.fromhex("0721")),          # movs r1,#6 -> #7 (the count)
+    hook(0x080A1BE6, 0x0809FA50, "chop_set"),           # app msg 0x6e: positions -> stored mode + flag; Chop / Roll run
+    hook(0x080A5A5A, 0x080BD74E, "chop_show_wave"),     # the Waveform screen's Mode popup highlight
+    hook(0x080B8AA2, 0x080BD74E, "chop_show_pad"),      # the pad view's Mode popup highlight
+    hook(0x080B8956, 0x08098D40, "chop_pages"),         # the pad view's pages: Chop + Roll on ChopShop's POS page
+    hook(0x0809DD28, 0x08093ECC, "chop_header_mode"),   # a fresh WAV header's mode: ChopShop stays ChopShop
+    hook(0x0809DEF2, 0x080B5758, "chop_header_post"),   # ... and its refresh: chop the new sample
 ]
