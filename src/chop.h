@@ -5,7 +5,7 @@
 
 /* The whole-file attack scan (chop_dsp.c, bank 2, a few thousand frames an audio block; asked 10-27: "transients to land
    square", stock's own transient Scan was "night and day" next to beat-grid chops). Every 128 frames: the energy of
-   the second difference (the top end, where a hit stands out of a full mix: against librosa's onsets on 8 of his files
+   the second difference (the top end, where a hit stands out of a full mix: against librosa's onsets on 8 test files
    it found the hits on top of held sounds that the first difference missed, F1 0.84 -> 0.91, host/chop_check.py).
    A hit = where the next ON_R blocks hold at least ON_RISE x the energy of the ON_R before, and that rise is the
    largest within +-ON_P blocks; placed on the 32-frame hop in that rise with the sharpest jump, 16 frames ahead of it. The ON_MAX

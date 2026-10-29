@@ -5,10 +5,10 @@
  * per semitone (the engine: note - 36, FUN_08065908). The roll's key strip only names the C keys, so a note laid down
  * on a Slicer pad cannot be read across to its chop. Now, when the Play Pad is a Slicer (ChopShop included: it is a
  * Slicer underneath), every key that has a slice carries the slice's number where the key's label goes, and reads as
- * a white key (his idea, 10-28: all numbers look the same; a black key with a slice is repainted white inside the
+ * a white key (asked 10-28: all numbers look the same; a black key with a slice is repainted white inside the
  * row lines, so the separators between keys stay). Keys without a slice stay stock, which shows where the chops end. On a C key stock's octave label stays when the number fits beside it (C2 + "1"); otherwise the
  * number takes the label's place. Nothing below C2 or above the last slice; Pads / MIDI sequences and other pad
- * types are untouched. A key with a slice reads white at every zoom (3.5.l, his call); the numbers come once the
+ * types are untouched. A key with a slice reads white at every zoom (3.5.l); the numbers come once the
  * rows average 9 px (the 8 px font fits), on every such key at that zoom (3.5.k skipped single 9 px rows: holes).
  *
  * How: the roll widget (view + 0x38, vtable 0x080f13dc, draw FUN_080bc974) ends its draw with the children draw
@@ -93,7 +93,7 @@ static void slice_keys(uint8_t *roll, uint32_t ctx)
         int dy = (h - 8) >> 1;
         int32_t r[4] = { x, ry[i] + (dy < 1 ? 1 : dy), 0x28, 0x14 };   /* a 9 px row: just above its lower line */
         if (BLACK[pc]) {
-            if (h >= 2) {                       /* white at any zoom (his call 10-28): between the two row lines */
+            if (h >= 2) {                       /* white at any zoom (asked 10-28): between the two row lines */
                 int32_t key[4] = { x - 3, ry[i] + 1, KEY_W, h - 1 };
                 fw_fill(key, 15, ctx);
             }
