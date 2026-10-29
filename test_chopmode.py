@@ -109,7 +109,7 @@ def chop_row(v, before=1, ident=0x14D):
 
 
 NAMES = ["--", "Off", "1/4", "1/2", "Beat", "2 Beats", "Bar", "Find", "Random"]
-for v, want in ((4, (9, 1, 2, 0)), (2, (9, 1, 0, 0)), (7, (9, 2, 0, 32)), (8, (9, 3, 0, 32))):
+for v, want in ((4, (9, 1, 2, 0)), (2, (9, 1, 0, 0)), (7, (9, 2, 0, 64)), (8, (9, 3, 0, 64))):
     s_, r_ = chop_row(v, before=v)                # the store already holds v when chop_set reads it back
     check(f"Chop row = {NAMES[v]}: stock stores {v}, chop_request{want}", s_ == [(0x14D, v)] and r_ == [want], (s_, r_))
 s_, r_ = chop_row(1, before=1)
@@ -117,7 +117,7 @@ check("Chop row = Off: stored, nothing runs", s_ == [(0x14D, 1)] and r_ == [], (
 s_, r_ = chop_row(0, before=1)
 check("Chop row turned to 0: clamped to Off (1): the row never leaves ChopShop", s_ == [(0x14D, 1)], s_)
 s_, r_ = chop_row(5, before=7, ident=0x161)
-check("Roll turned on a Find pad: Find again (a re-roll)", r_ == [(9, 2, 0, 32)], r_)
+check("Roll turned on a Find pad: Find again (a re-roll)", r_ == [(9, 2, 0, 64)], r_)
 s_, r_ = chop_row(5, before=1, ident=0x161)
 check("Roll with Chop Off: nothing", r_ == [], r_)
 

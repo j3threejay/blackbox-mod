@@ -26,6 +26,7 @@ typedef uint32_t (*perm_alloc_fn)(uint32_t bytes, int one);
 
 #define P_STRETCH  0x14c          /* clean id (unregistered by stock, no stock compare): test_param_ids.py checks it */
 #define STR_BYTES  ((sizeof(struct str_bank) + 0xfffu) & ~0xfffu)
+_Static_assert(2 * ON_CHUNK <= STR_SCRATCH_ALL, "the attack scan reads L and R chunks into the scratch");
 
 uint8_t *master_block(void);      /* master.c */
 int b2_live(void);                /* cpu.c */
@@ -122,7 +123,7 @@ void stretch_tick(void)
     b->model[q] = (uint8_t)(v > 0 && v < STR_MODELS ? v : STR_STOCK);
     sel_tempo_tick(b);                                  /* clipsel.c: a tempo detection's next step */
     if (b->cj.state == CHOP_SCAN && b2_live())
-        chop_scan_step(&b->cj, b->scratch);             /* chop.c: a beat scan's next beats */
+        chop_scan_step(&b->cj, b->scratch);             /* chop.c: the attack scan's next frames */
 }
 
 /*

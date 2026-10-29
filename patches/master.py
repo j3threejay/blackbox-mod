@@ -64,4 +64,25 @@ PATCHES = [
     (0x080F19A8, word(0x080AEAF9), word(sym["splash_draw"] | 1)),
     (0x0808B3A6, bl(0x0808B3A6, 0x0808F90C), bl(0x0808B3A6, sym["theme_clear"])),
     *[(a, bl(a, 0x0808F23C), bl(a, sym["theme_roll_text"])) for a in (0x080BCC5A, 0x080BCECE, 0x080BD010)],
+    # Slice numbers on the piano roll's keys (src/pianoslice.c): the roll draw's children draw goes through it
+    hook(0x080BD024, 0x080AEAF8, "pianoslice_children"),
+    # Piano roll Fold (src/pianofold.c). The layout runs the list step on every layout while folded (was: only with
+    # + 0xb44c set too), and the list step is ours: Fold to notes / Scale fold, 1..127, rows = the notes' count
+    (0x080BB1A0, bytes.fromhex("2bb1"), bytes.fromhex("00bf")),
+    hook(0x080BB286, 0x080BAAA0, "pf_build"),
+    hook(0x080BC718, 0x080BBA40, "pf_tap"),                     # key strip double-tap: Off -> Notes -> Scale -> Off
+    (0x080F13DC, word(0x080BD049), word(sym["pf_tick"] | 1)),   # roll tick: fold drag scroll, view kept in 1..127
+    *[hook(at, 0x080BBB50, "pf_follow") for at in (0x080BBCA0, 0x080BC066, 0x080BC2FE, 0x080BC410)],
+    (0x080BBD0A, bytes.fromhex("c7f84034"), bytes.fromhex("00bf00bf")),   # refresh keeps the fold scroll
+    hook(0x080C145C, 0x080BFEEC, "pf_refresh"),                 # 0x66: the fold list rebuilt right after
+    hook(0x080C17BA, 0x080BBBC4, "pf_pitch"),                   # BR: scale steps, re-centred detents
+    hook(0x080C08B8, 0x080BD5B8, "pf_menu_add"),                # EDIT: + Fold Notes, Fold Scale (5 per column)
+    (0x080F1688, word(0x080C0A41), word(sym["pf_view_msg"] | 1)),
+    # Pitch range 1..127 (stock 24..96 = C1..C7): Keys min base, the vertical scroll widget's count (unread: kept
+    # in step), the pitch knob's count, the scroll bar's range, the drag scroll's top (0x61 - rows -> 0x80 - rows)
+    (0x080BA0C2, bytes.fromhex("1823"), bytes.fromhex("0123")),
+    (0x080BA0D2, bytes.fromhex("4221"), bytes.fromhex("7821")),
+    (0x080BA0E8, bytes.fromhex("4921"), bytes.fromhex("7f21")),
+    (0x080BCCD6, bytes.fromhex("4921"), bytes.fromhex("7f21")),
+    (0x080BD236, bytes.fromhex("c2f16102"), bytes.fromhex("c2f18002")),
 ]

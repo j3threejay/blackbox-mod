@@ -7,7 +7,8 @@
  * copies the cell again, and the project-changed flag. App / view context only (view code runs in the app task).
  * chop_beats lays the points on a beat grid: anchor + k x frames per beat x unit, whole file, at most 128; a pickup
  * slice at 0 when beat one is later than that (otherwise the audio before it could not be played as a slice).
- * CPU: none on the audio side; one pass over at most 128 points when asked.
+ * CPU: none on the audio side but the attack scan (chop_dsp.c); here one pass over at most 128 x 1024 hits when asked
+ * (GUI task, ~1 M instructions, ~2 ms once).
  */
 #include <stdint.h>
 #include "chop.h"
@@ -82,13 +83,19 @@ int chop_beats(int32_t *out, int max, int32_t len, int32_t anchor, float fpb, fl
 }
 
 /*
- * Find / Random chops (Serato Sample's Find Samples / Set Random, on the Blackbox's slices) from a finished beat scan.
- * Beats quieter than 1/20 of the loudest are never picked (silence, fades). want points, ascending, in out[].
- *   Find: the track cut into `want` equal stretches of beats; in each, the beat that hits hardest, a bar start counted
- *         1.5x, everything nudged by a seeded random 0.6..1.4 so another roll (another seed) finds other chops.
- *   Random: `want` different usable beats at random.
- * Returns the count (fewer when the track has fewer usable beats).
+ * Every chop on a hit of the attack scan (chop_dsp.c; asked 10-27: the markers must land on the real hits, the way
+ * stock's transient Scan does). Hits quieter than ON_FLOOR x the loudest are never used (silence, fades, noise).
+ *   Grid chops (chop_onto_hits): each point to the nearest hit within half a step either way, among those no more
+ *         than 10 dB under the loudest there (a click in a gap does not win over the snare beside it); a point with
+ *         none there is dropped. The file start stays a slice (the audio before the first hit must stay playable).
+ *   Find: the file cut into `want` equal stretches; in each, the loudest, sharpest hit, nudged by a seeded random
+ *         0.6..1.4 so another roll (another seed) finds other chops.
+ *   Random: `want` different hits at random.
+ * Unsorted out[] (chop_poll tidies). Returns the count (fewer when the file has fewer hits).
  */
+#define ON_FLOOR   0.001f                     /* -30 dB (plain energy) */
+#define ON_NEAR    0.1f                       /* grid chops: hits within 10 dB of the loudest in reach */
+
 static uint32_t rnd(uint32_t *s)
 {
     uint32_t x = *s ? *s : 0x9e3779b9u;
@@ -97,37 +104,77 @@ static uint32_t rnd(uint32_t *s)
     return x;
 }
 
-static float loudest(const struct chop_job *j)
+static float sqrt_(float x)
 {
-    float m = 0.0f;
-    for (int b = 0; b < j->n; b++)
-        if (j->level[b] > m) m = j->level[b];
-    return m;
+#ifdef STR_HOST
+    return __builtin_sqrtf(x);
+#else
+    float r;
+    __asm__("vsqrt.f32 %0, %1" : "=t"(r) : "t"(x));
+    return r;
+#endif
 }
 
-static int32_t at(const struct chop_job *j, int b)
+static float floor_of(const struct chop_job *j)
 {
-    return (int32_t)(j->anchor + (float)b * j->fpb + 0.5f);
+    float m = 0.0f;
+    for (int i = 0; i < j->n; i++)
+        if (j->level[i] > m) m = j->level[i];
+    return m * ON_FLOOR;
+}
+
+int chop_onto_hits(int32_t *pos, int n, float step, const struct chop_job *j)
+{
+    float floor = floor_of(j);
+    int32_t half = (int32_t)(step * 0.5f);
+    int m = 0;
+    for (int i = 0; i < n; i++) {
+        int32_t p = pos[i], best = -1, bd = half + 1;
+        if (p <= 0) {                                    /* the pickup slice stays at the file start */
+            pos[m++] = 0;
+            continue;
+        }
+        float top = floor;
+        for (int k = 0; k < j->n; k++) {
+            int32_t d = j->at[k] - p;
+            if ((d < 0 ? -d : d) <= half && j->level[k] > top) top = j->level[k];
+        }
+        for (int k = 0; k < j->n; k++) {
+            int32_t d = j->at[k] - p;
+            if (d < 0) d = -d;
+            if (d < bd && j->level[k] > floor && j->level[k] >= top * ON_NEAR) { bd = d; best = j->at[k]; }
+        }
+        if (best >= 0)
+            pos[m++] = best;
+    }
+    int lo = 0;
+    for (int i = 1; i < m; i++)
+        if (pos[i] < pos[lo]) lo = i;
+    if (m < CHOP_MAX && (!m || pos[lo] > PICKUP_MIN))
+        pos[m++] = 0;
+    return m;
 }
 
 int chop_find(int32_t *out, int want, const struct chop_job *j, uint32_t seed)
 {
     if (j->state != CHOP_DONE || j->n <= 0 || want <= 0)
         return 0;
-    float floor = loudest(j) * 0.05f;
+    float floor = floor_of(j);
+    int32_t span = j->len / want;
     int n = 0;
     for (int s = 0; s < want; s++) {
-        int lo = j->n * s / want, hi = j->n * (s + 1) / want, best = -1;
+        int32_t lo = s * span, hi = s == want - 1 ? j->len : lo + span;
+        int best = -1;
         float bs = 0.0f;
-        for (int b = lo; b < hi; b++) {
-            float sc = (float)(rnd(&seed) >> 8) * (0.8f / 16777216.0f) + 0.6f;
-            if (j->level[b] <= floor)
+        for (int k = 0; k < j->n; k++) {
+            if (j->at[k] < lo || j->at[k] >= hi || j->level[k] <= floor)
                 continue;
-            sc *= j->hit[b] * (b % 4 == 0 ? 1.5f : 1.0f) + 1e-6f;
-            if (sc > bs) { bs = sc; best = b; }
+            float sc = (float)(rnd(&seed) >> 8) * (0.8f / 16777216.0f) + 0.6f;
+            sc *= sqrt_(j->level[k]) * (1.0f - 1.0f / j->score[k]) + 1e-9f;   /* loud x sharp */
+            if (sc > bs) { bs = sc; best = k; }
         }
         if (best >= 0)
-            out[n++] = at(j, best);
+            out[n++] = j->at[best];
     }
     return n;
 }
@@ -136,18 +183,18 @@ int chop_random(int32_t *out, int want, const struct chop_job *j, uint32_t seed)
 {
     if (j->state != CHOP_DONE || j->n <= 0 || want <= 0)
         return 0;
-    float floor = loudest(j) * 0.05f;
+    float floor = floor_of(j);
     int usable = 0;
-    for (int b = 0; b < j->n; b++)
-        usable += j->level[b] > floor;
+    for (int k = 0; k < j->n; k++)
+        usable += j->level[k] > floor;
     if (want > usable)
         want = usable;
     int n = 0;
-    for (int b = 0; b < j->n && n < want; b++) {         /* selection sampling: each usable beat with p = left / remaining */
-        if (j->level[b] <= floor)
+    for (int k = 0; k < j->n && n < want; k++) {         /* selection sampling: each usable hit with p = left / remaining */
+        if (j->level[k] <= floor)
             continue;
         if ((int)(rnd(&seed) % (uint32_t)usable) < want - n)
-            out[n++] = at(j, b);
+            out[n++] = j->at[k];
         usable--;
     }
     return n;
@@ -155,9 +202,10 @@ int chop_random(int32_t *out, int want, const struct chop_job *j, uint32_t seed)
 
 /*
  * The driver (GUI task, every frame: theme_compose calls chop_poll). chop_request starts an operation on pad q: the
- * tempo first (the detector, unless a re-roll of the same pad can reuse the last one), then Beats lays the points at
- * once; Find / Random scan the whole file for beat levels (chop_dsp.c, audio side) and pick from it. Find also turns
- * PlayThru on (Serato's Find Samples plays on past a chop).
+ * tempo first (the detector, unless a re-roll of the same pad can reuse the last one), then the attack scan (chop_dsp.c,
+ * audio side; once per file: kept until a new sample) as far as the chops need it: Beats to its last grid point, Find /
+ * Random the whole file. Then every chop goes onto a hit. Find also turns PlayThru on (Serato's Find Samples plays on
+ * past a chop).
  */
 #include "stretch.h"
 struct str_bank *stretch_bank(void);
@@ -181,7 +229,7 @@ typedef void (*eng_param_fn)(uint32_t engine, uint32_t pad, int param, int value
 /* The Roll row's cue (asked 10-26: "a little dice ... something that tells you that you actually did roll it"),
    counted in GUI frames in chop_run.spare: [0] dice frames left after a request, [1] frames the result stays up,
    [2] chops placed. Shown by chop_view_tick (chopmode.c) through chop_roll_text. */
-#define CUE_DICE      36                                /* ~0.6 s of tumbling dice */
+#define CUE_DICE      48                                /* ~0.8 s of two dice tumbling, slowing, landing */
 #define CUE_SHOW      90                                /* ~1.5 s of "32 chops" / "Fail n" */
 
 static const float unit_beats[5] = { 0.25f, 0.5f, 1.0f, 2.0f, 4.0f };
@@ -194,24 +242,40 @@ static void *pad_obj(struct str_bank *b, int q)
     return eng ? *(void **)(eng + PAD_SOURCE) : 0;
 }
 
+static void with_tempo(struct str_bank *b, struct chop_run *r, int q, void *obj);
+
+/* pad q's attack scan is this sample's and reaches frame upto */
+static int scanned(struct str_bank *b, int q, void *obj, int32_t upto)
+{
+    return b->cj.state == CHOP_DONE && b->cj.pad == q && b->cj.obj == obj && b->cj.len >= upto;
+}
+
 void chop_request(int q, int op, int unit, int want)
 {
     struct str_bank *b = stretch_bank();
     if (!b || q < 0 || q > 15 || op <= CHOP_OP_NONE || op > CHOP_OP_RANDOM)
         return;
     struct chop_run *r = &b->cr;
-    int reuse = r->pad == q && r->fpb > 0.0f && op != CHOP_OP_BEATS && r->op == op && r->phase == CHOP_PH_IDLE;
+    void *obj = pad_obj(b, q);
+    /* this file's tempo already in hand (chop_forget drops it on a new sample): no detector. A Chop change mid-playback
+       ran the detector and the whole-file scan again and choked a little (glass 10-27) */
+    int known = r->pad == q && r->fpb > 0.0f && r->phase == CHOP_PH_IDLE && obj != 0;
     r->op = (uint8_t)op;
     r->pad = (uint8_t)q;
     r->unit = (uint8_t)(unit < 0 ? 0 : unit > 4 ? 4 : unit);
-    r->want = want > 0 && want <= CHOP_MAX ? want : 32;
+    r->want = want > 0 && want <= CHOP_MAX ? want : 64;
     r->seed = r->seed * 1664525u + 1013904223u + b->seq;
     r->frames = 0;
     r->fail = 0;
     r->spare[0] = CUE_DICE;
     r->spare[1] = 0;
-    if (reuse && b->cj.state == CHOP_DONE && b->cj.pad == q) {
-        r->phase = CHOP_PH_SCAN;                        /* a re-roll: same scan, new seed */
+    if (known) {
+        if (op != CHOP_OP_BEATS && scanned(b, q, obj, fw_src_len(obj))) {
+            r->phase = CHOP_PH_SCAN;                    /* the whole file's hits in hand: new picks (a re-roll, Find <-> Random) */
+            r->seen = -1;
+            return;
+        }
+        with_tempo(b, r, q, obj);                       /* the scan (or what it still needs) at the known tempo */
         return;
     }
     r->phase = CHOP_PH_TEMPO;
@@ -225,6 +289,10 @@ void chop_forget(int q)
     struct str_bank *b = stretch_bank();
     if (b && b->cr.pad == q)
         b->cr.fpb = 0.0f;
+    if (b && b->cj.pad == q) {
+        b->cj.obj = 0;                                  /* never this pad's scan again (the object may be reused) */
+        b->cj.state = CHOP_IDLE;
+    }
 }
 
 static void place(int q, const int32_t *pos, int n)
@@ -251,11 +319,46 @@ static void done(struct chop_run *r, int fail, int n)  /* the run is over: show 
     r->spare[2] = (uint8_t)(n < 0 ? 0 : n > 255 ? 255 : n);
 }
 
+/* Two dice tumbling (asked 10-27: "more like dice tumbling"): every face change is a new random pair, the brackets
+   turn [ ] ( ) < > to read as edge-on, the pair bounces a column left / right, and the changes come further apart
+   until the dice land on their final faces (from the roll's seed) and hold. ASCII only; at most 13 characters. */
+static const uint8_t dice_at[] = {0, 2, 4, 6, 9, 12, 16, 21, 27, 34, 42};   /* frames since the turn: a new face */
+#define DICE_STEPS (sizeof dice_at / sizeof dice_at[0])
+
+static uint32_t mix(uint32_t x)
+{
+    x ^= x >> 15; x *= 0x2c1b3c6du; x ^= x >> 12; x *= 0x297a2d39u; x ^= x >> 15;
+    return x;
+}
+
+static const char *dice_frame(uint32_t seed, int t, char *buf)
+{
+    static const char faces[6][4] = {" . ", ". .", "...", ": :", ":.:", ":::"};
+    static const char open[3] = {'[', '(', '<'}, shut[3] = {']', ')', '>'};
+    static const uint8_t bounce[4] = {0, 1, 2, 1};
+    unsigned k = 0;
+    while (k + 1 < DICE_STEPS && t >= dice_at[k + 1])
+        k++;
+    int last = k + 1 == DICE_STEPS;
+    uint32_t h = mix(seed ^ (k * 0x9e3779b1u));
+    int a = (int)(h % 6), d = (int)((h >> 8) % 6), s = last ? 0 : (int)(k % 3);
+    char *p = buf;
+    for (int i = last ? 1 : bounce[k & 3]; i > 0; i--)
+        *p++ = ' ';
+    for (int n = 0; n < 2; n++) {
+        const char *f = faces[n ? d : a];
+        *p++ = open[s]; *p++ = f[0]; *p++ = f[1]; *p++ = f[2]; *p++ = shut[s];
+        if (!n)
+            *p++ = ' ';
+    }
+    *p = 0;
+    return buf;
+}
+
 /* The Roll row's text for pad q: tumbling dice, "Rolling..", the result, then a resting die. ASCII only: the font
    draws 0x20..0x7f (research, 10-26). buf holds at least 16. */
 const char *chop_roll_text(int q, char *buf)
 {
-    static const char *const dice[6] = {"[.]", "[:]", "[:.]", "[::]", "[:.:]", "[:::]"};
     struct str_bank *b = stretch_bank();
     const struct chop_run *r = b ? &b->cr : 0;
     if (r && q == CHOP_ANY_PAD)
@@ -263,7 +366,7 @@ const char *chop_roll_text(int q, char *buf)
     if (!r || r->pad != q)
         return "[:.:]";
     if (r->spare[0])
-        return dice[(CUE_DICE - r->spare[0]) / 6 % 6];
+        return dice_frame(r->seed, CUE_DICE - r->spare[0], buf);
     if (r->phase != CHOP_PH_IDLE)
         return "Rolling..";
     if (!r->spare[1])
@@ -285,7 +388,32 @@ const char *chop_roll_text(int q, char *buf)
     return buf;
 }
 
-/* The tempo is known (r->fpb, r->anchor): Beat Count to match, then the chops (Beats) or the beat scan (Find, Random) */
+/* sorted, and two points closer than a sub-hop are one */
+static int tidy(int32_t *pos, int n)
+{
+    for (int i = 1; i < n; i++) {
+        int32_t v = pos[i];
+        int j = i;
+        for (; j > 0 && pos[j - 1] > v; j--)
+            pos[j] = pos[j - 1];
+        pos[j] = v;
+    }
+    int m = 0;
+    for (int i = 0; i < n; i++)
+        if (!m || pos[i] - pos[m - 1] >= ON_SUB)
+            pos[m++] = pos[i];
+    return m;
+}
+
+/* frames the scan judges behind its read point, and a little more */
+#define SCAN_LAG ((ON_R + ON_P + 4) * ON_H)
+
+static int grid(struct chop_run *r, int32_t len)
+{
+    return chop_beats(r->pos, CHOP_MAX, len, (int32_t)r->anchor, r->fpb, unit_beats[r->unit]);
+}
+
+/* The tempo is known (r->fpb, r->anchor): Beat Count to match, then the attack scan as far as the chops need */
 static void with_tempo(struct str_bank *b, struct chop_run *r, int q, void *obj)
 {
     int32_t *pos = r->pos, len = fw_src_len(obj);
@@ -297,14 +425,27 @@ static void with_tempo(struct str_bank *b, struct chop_run *r, int q, void *obj)
     if (c)
         fw_set(c, P_BEATCOUNT, beats);
     fw_eng_param(ENGINE, (uint32_t)((q & 3) | (q >> 2) << 8), P_BEATCOUNT, beats, 0, 0);
-    if (r->op == CHOP_OP_BEATS) {
-        int n = chop_beats(pos, CHOP_MAX, len, (int32_t)r->anchor, r->fpb, unit_beats[r->unit]);
-        place(q, pos, n);
-        done(r, 0, n);
-        return;
+    int32_t upto = len;
+    if (r->op == CHOP_OP_BEATS) {                     /* 128 points at most: only as far as the last (+ half a step) */
+        int n = grid(r, len);
+        if (n == CHOP_MAX)
+            upto = pos[n - 1] + (int32_t)(r->fpb * unit_beats[r->unit] * 0.5f) + SCAN_LAG;
+        if (upto > len)
+            upto = len;
     }
-    chop_scan_start(&b->cj, q, obj, len, fw_src_stereo(obj), r->anchor, r->fpb);
-    b->cj.fetch = chop_fw_fetch;
+    struct chop_job *j = &b->cj;
+    if (j->pad == q && j->obj == obj && (j->state == CHOP_DONE || j->state == CHOP_SCAN)) {
+        if (j->len < upto) {                            /* this file's scan, not far enough yet: it goes on */
+            j->len = upto;
+            j->misses = 0;
+            __asm__ volatile("" ::: "memory");
+            j->state = CHOP_SCAN;
+        }
+    } else {
+        chop_scan_start(j, q, obj, upto, fw_src_stereo(obj));
+        j->fetch = chop_fw_fetch;
+    }
+    r->seen = -1;
     r->phase = CHOP_PH_SCAN;
 }
 
@@ -343,6 +484,10 @@ void chop_poll(void)
             r->spare[1]--;
         return;
     }
+    if (r->phase == CHOP_PH_SCAN && b->cj.next != r->seen) {
+        r->seen = b->cj.next;                           /* the scan is moving: a long file is not a stall */
+        r->frames = 0;
+    }
     if (++r->frames > CHOP_WAIT) {
         done(r, 2, 0);
         return;
@@ -369,20 +514,25 @@ void chop_poll(void)
     /* CHOP_PH_SCAN */
     if (b->cj.state == CHOP_SCAN)
         return;
-    if (b->cj.state != CHOP_DONE || b->cj.pad != q) {
+    void *obj = pad_obj(b, q);
+    if (b->cj.state != CHOP_DONE || b->cj.pad != q || !obj || b->cj.obj != obj) {
         done(r, 2, 0);
         return;
     }
-    int n = r->op == CHOP_OP_FIND ? chop_find(pos, r->want, &b->cj, r->seed) : chop_random(pos, r->want, &b->cj, r->seed);
+    int n;
+    if (r->op == CHOP_OP_BEATS)
+        n = chop_onto_hits(pos, grid(r, fw_src_len(obj)), r->fpb * unit_beats[r->unit], &b->cj);
+    else
+        n = r->op == CHOP_OP_FIND ? chop_find(pos, r->want, &b->cj, r->seed) : chop_random(pos, r->want, &b->cj, r->seed);
     if (n <= 0) {
         done(r, 2, 0);
         return;
     }
+    n = tidy(pos, n);
     place(q, pos, n);
     done(r, 0, n);
-    if (r->op == CHOP_OP_FIND) {
-        struct { uint32_t tag; uint16_t pad, rr; } ref = { CELL_REF, cell_of(q), 0 };
-        uint8_t *c = fw_cell(APP, &ref);
+    if (r->op == CHOP_OP_FIND) {                        /* Find plays on past a chop */
+        uint8_t *c = pad_cell(q);
         if (c)
             fw_set(c, P_PLAYTHRU, 1);
         fw_eng_param(ENGINE, (uint32_t)((q & 3) | (q >> 2) << 8), P_PLAYTHRU, 1, 0, 0);

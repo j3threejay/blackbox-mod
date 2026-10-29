@@ -87,7 +87,7 @@ struct str_seg {
 #define STR_PTR_OFFSET (0x56800u + 0x3e100u)   /* in master.c's block: the area's address */
 #define STR_SLOTS 32
 #define STR_STALE 256            /* reads (of any clip segment) without a visit before a slot is free again */
-#define STR_BANK_MAGIC 0x53544238u   /* "STB8": + prof; Smooth's windows wider (STR_SM_REACH) */
+#define STR_BANK_MAGIC 0x53544241u   /* "STBA": cj = the attack scan, sn gone; STB9: + sn, cr.placing; STB8: + prof */
 struct str_own {
     const uint8_t *seg;          /* the stock segment it follows */
     uint32_t seq;                /* the read it was last visited on */
@@ -123,7 +123,7 @@ struct str_bank {
     struct str_seg st[STR_SLOTS];
     struct tempo_job tj;         /* clipsel.c: one tempo detection at a time, a step per block */
     struct str_mark mk[16][4];   /* stretch.c mk_spawn: per pad, per stock segment, a marker slice (Slicer / Sync = Slice) */
-    struct chop_job cj;          /* chop.c: one whole-file beat scan at a time (ChopShop Find / Random) */
+    struct chop_job cj;          /* chop.c: one file's attack scan at a time (every ChopShop chop lands on its hits) */
     struct chop_run cr;          /* chop.c: the chop operation in flight */
     /* every build (bank 2 is the same for P and normal): DWT cycles in the models, read over USB. [0] cycles in the
        source fetch, [1] frames fetched (per channel pair), [2] cycles in str_clip in all, [3] output frames rendered */

@@ -95,7 +95,7 @@ static void run_type(int q, int chop)                /* P_CHOP -> chop.c: 2..6 B
     if (type <= 5)
         chop_request(q, CHOP_OP_BEATS, type - 1, 0);
     else
-        chop_request(q, type == 6 ? CHOP_OP_FIND : CHOP_OP_RANDOM, 0, 32);   /* 32 chops (10-25 glass test) */
+        chop_request(q, type == 6 ? CHOP_OP_FIND : CHOP_OP_RANDOM, 0, 64);   /* 64 chops (10-27; 32 since 10-25) */
 }
 
 /* The app's set handler for message 0x6e (BL @0x080a1be6): the Mode list positions, and our two rows. */
