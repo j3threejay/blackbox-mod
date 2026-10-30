@@ -1,6 +1,6 @@
 """The boot splash image for the firmware: python3 host/splash/make_splash.py -> src/splash_img.c (+ splash-B-screen.png).
 
-His pick (2026-10-17) is mock-up B (splash-B.svg, make_mock.py): the faceplate logo, "JOEBOX 1" in dot-matrix,
+The pick (2026-10-17) is mock-up B (splash-B.svg, make_mock.py): the faceplate logo, "JOEBOX 1" in dot-matrix,
 "BLACKBOX MOD / BY JUSTIN JOE", on black. The mock-up's small "JOEBOX 1" bottom right only stood in for the firmware's
 own version label, which a test build still draws there (src/splash.c), so it is taken out here.
 Steps: render the SVG at exactly 320 x 240 (headless Chrome, as the mock-ups were checked), cut to the screen's 15-bit
