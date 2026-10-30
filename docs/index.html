@@ -45,7 +45,7 @@
   (<a href="https://github.com/j3threejay/blackbox-mod/blob/main/THIRD_PARTY.md">notices</a>).</p>
 </main>
 <script>
-const PATCH = "blackbox-mod-joebox-1.json";
+const PATCH = "blackbox-mod-joebox-2.json";
 const hex = b => [...new Uint8Array(b)].map(x => x.toString(16).padStart(2, "0")).join("");
 const unhex = s => Uint8Array.from(s.match(/../g) || [], h => parseInt(h, 16));
 const sha = async b => hex(await crypto.subtle.digest("SHA-256", b));
