@@ -9,15 +9,18 @@ Some builds come as TWO files: BLACKBOX.bin and BBEXTRA.BIN. Both are written to
 the root of the microSD card. The second one holds this project's own code only.
 """
 import argparse
-import glob
 import hashlib
 import json
 import os
+import re
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
+# The current release: the patch the browser patcher serves (docs/index.html), not the newest file (a clone gives
+# every file the same time).
+CURRENT = re.search(r'const PATCH = "([^"]+)"', open(os.path.join(ROOT, "docs", "index.html")).read()).group(1)
 ap = argparse.ArgumentParser()
 ap.add_argument("stock")
-ap.add_argument("patch", nargs="?", default=max(glob.glob(os.path.join(ROOT, "docs", "blackbox-mod-*.json")), key=os.path.getmtime))
+ap.add_argument("patch", nargs="?", default=os.path.join(ROOT, "docs", CURRENT))
 ap.add_argument("-o", "--out", default=None)
 a = ap.parse_args()
 

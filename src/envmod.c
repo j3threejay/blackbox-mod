@@ -35,6 +35,7 @@ typedef void (*attach_fn)(float amount, void *param, void *source, int slot);
 #define SRC_LFO2     5            /* lfo.c: LFO 2 and 3, one per pad; the preset format's "lfo2" / "lfo3" */
 #define SRC_LFO3     6
 void *lfo_source(const uint8_t *pad, int k);
+void lfo_route(const uint8_t *pad, unsigned target, unsigned slot, unsigned source);
 #define SRC_VELOCITY 0xd
 #define PAD_LIST     0x4ec
 #define PAD_COUNT    0x54c
@@ -58,6 +59,7 @@ static const struct {
 void env_mod_setup(uint8_t *pad, uint8_t *cmd)
 {
     uint16_t *source = (uint16_t *)(cmd + 0x14), ours = *source;
+    lfo_route(pad, *(uint32_t *)(cmd + 0xc) & 0xffff, *(uint32_t *)(cmd + 0x10) & 0xff, ours);
     if (ours != SRC_ENV && ours != SRC_LFO2 && ours != SRC_LFO3) {
         fw_setup(pad, cmd);
         return;
@@ -115,6 +117,7 @@ static const struct {
 void env_mod_setup_b(uint8_t *pad, uint8_t *cmd)
 {
     uint16_t source = *(uint16_t *)(cmd + 0x14), target = (uint16_t)*(uint32_t *)(cmd + 0xc);
+    lfo_route(pad, target, *(uint32_t *)(cmd + 0x10) & 0xffff, source);
     if (source != SRC_ENV && source != SRC_LFO2 && source != SRC_LFO3) {
         fw_setup_b(pad, cmd);
         return;

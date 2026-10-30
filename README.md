@@ -13,36 +13,29 @@ out (new FX, fixes). That's all the list is for.
 ## What it adds (JOEBOX 2)
 
 TOOLS shows `JOEBOX 2` as the version. Still two files on the card, `BLACKBOX.bin` and `BBEXTRA.BIN`, and the first
-boot restarts itself once while the second file goes in.
+boot restarts itself once while the second file goes in. Coming from JOEBOX 1, copy both files: the second one changed.
 
-New in beta 4:
+New in JOEBOX 2, for chopping and stretching samples:
 
 - **ChopShop, a new pad mode.** Pick ChopShop from a pad's Mode list (it sits between Slicer and Granular). It's a
   Slicer underneath, so a project still opens on stock as a plain Slicer, but it chops the file for you from its
-  detected tempo. On the POS page, the top three rows are ours:
-  - **Chop:** 1/4, 1/2, Beat, 2 Beats or Bar slices the whole file on the beat grid from beat one, even when the
-    file starts mid-beat. **Find** picks 32 chops across the track, the hardest hits in each part of it. **Random**
-    picks 32 random beats. Picking one runs it.
+  detected tempo, and every chop lands right at the start of a sound, the way the stock transient Scan does. On the
+  POS page, the top three rows are ours:
+  - **Chop:** 1/4, 1/2, Beat, 2 Beats or Bar follows the beat grid from beat one, even when the file starts
+    mid-beat. Each chop moves to the nearest real hit, and a beat with nothing on it gets no chop. **Find** picks
+    64 chops across the track, the loudest, sharpest hits in each part of it. **Random** picks 64 random hits.
+    Picking one runs it.
   - **Roll:** turn it either way for a new set of Find or Random chops. A little dice shows it rolling, then how
     many chops it placed.
   - **Tempo:** 1/2, x1 or x2. If the detector read the song at half or double time, set it here and the chops and
     Beat Count follow. It sticks until you load a new sample.
   Entering ChopShop sets Launch Mode to Gate, Sync on and Stretch to Cyclic. Loading a new sample onto a ChopShop pad
   chops it again on its own.
-- **Stretch on Slicer pads.** The Stretch row (Stock, Smooth, Keyframe, Cyclic) is now on Slicer pads with Sync on,
-  and on Clip pads with Sync set to Slice, so each slice gets stretched to the project tempo, not just moved.
-- **Stretch fixes from tester reports.** Smooth no longer clicks on low bass notes when you slow a clip down more
-  than about 5 BPM. Smooth keeps the stereo width it used to lose a little of, and Keyframe keeps its top end
-  (about 2 dB above 4 kHz was going missing). When many synced clips are on Smooth, their heaviest moments no longer
-  all land on the same instant.
-- **Install:** two files again, because the second file changed. Copy both and expect the one restart.
-
-New in beta 3:
-
-- **Time-stretch models for Clip pads.** On a Clip pad's POS page, under Sync, there's a new **Stretch** row: Stock,
-  Smooth, Keyframe or Cyclic. Each one changes how a synced clip gets squeezed or stretched to your project tempo.
-  Stock is the Blackbox's own. Smooth is the clean one, Keyframe follows the transients, Cyclic has that chopped
-  sampler colour. They work inside stock's own sync, so timing stays exactly as stock plays it. Not on Slicer pads yet.
+- **Time-stretch models.** On the POS page, under Sync, there's a **Stretch** row: Stock, Smooth, Keyframe or
+  Cyclic. Each one changes how a synced clip gets squeezed or stretched to your project tempo. Stock is the
+  Blackbox's own. Smooth is the clean one, Keyframe follows the transients, Cyclic has that chopped sampler colour.
+  They work inside stock's own sync, so timing stays exactly as stock plays it. It's on Clip pads, on Slicer pads
+  with Sync on, and on Clip pads with Sync set to Slice, where each slice gets stretched to the tempo, not just moved.
 - **Tempo from a section, on the Waveform screen.** Open a Clip pad's Waveform screen and the four knobs are Start,
   End, Beats and BPM. Mark a section, tell it how many beats are in it, and the clip learns its tempo from that
   section and plays the whole file in sync from Start, even if the file starts in the middle of a beat. Turning BPM
@@ -52,11 +45,16 @@ New in beta 3:
   handles your clip, leave it on Guess (BPM shows stock's guess with a `~` in front).
 - **Clips play while stopped**, so you can hear what you're marking.
 - **The position knobs speed up** the faster you turn them, so you can cross a long file without cranking forever.
-- **Fixed**: saving or packing a big project could freeze for 10 seconds or so and then restart the Blackbox. Saving
-  no longer needs the extra memory that ran out. Also the VHS page lost its type knob, which could leave you stuck on
-  Prism. Pick the Master FX type on the TOOLS row like before.
+- **Chop numbers on the piano roll.** On a Slicer or ChopShop pad the keys on the left show which chop each one
+  plays (C2 = 1), all as white keys, so you can read a note straight across to its chop.
+- **Fold the piano roll.** Double tap the piano keys: once for only the notes you're using, again for only the notes
+  in your scale (set on the Keys grid), again to unfold. It's also in the EDIT menu as Fold Notes / Fold Scale.
+- **Pitch knob fixes.** No more dead click or skipped note at the top and bottom of the range, and the piano roll
+  goes all the way up to note 127 (stock stops at 96), so high notes get their own rows instead of piling up at the
+  top.
 
-New since JOEBOX 1:
+New in JOEBOX 2, everything else:
+
 
 - **Less CPU.** A lot of the mod's DSP moved to the chip's second flash bank and was rebuilt for speed, Confetti
   stops using CPU once nothing has gone into it for a few seconds, and changing the delay Type no longer spikes the
@@ -74,6 +72,11 @@ New since JOEBOX 1:
 - **Spectrum on the master EQ screen** (press FX until the EQ shows): the live spectrum of Out 1 behind the EQ curve.
 - **Pad numbers** on the pad picker.
 - **A JOEBOX boot screen.**
+- **Fixed**: saving or packing a big project could freeze for 10 seconds or so and then restart the Blackbox. Saving
+  no longer needs the extra memory that ran out. Also the VHS page lost its type knob, which could leave you stuck on
+  Prism. Pick the Master FX type on the TOOLS row like before.
+- **Fixed**: LFO 2 and LFO 3 kept using a little CPU (about 0.3%) after you took them off every mod slot, until the
+  next restart.
 - **Fixed**: the pop when a pad's Filter crosses 0 (by hand or from an LFO); the machine Fidelity modes coming out
   grittier on one hit than the next; switching a sequence from Keys to Pads and back no longer loses the notes (stock
   clears all four patterns; now switching back brings them back, as long as nothing was recorded in between).
@@ -143,8 +146,7 @@ From 3.1.n and earlier:
   material it picks something else entirely. Then set Beats yourself. "Fail 3" means it couldn't find a steady tempo
   at all, which is normal on short samples and anything without a beat.
 - The Waveform section knobs and Detect are on Clip pads only. Stretch is on Clip and Slicer pads.
-- Smooth costs more CPU than the other stretch models, and more than in beta 3 (the bass fix searches further).
-  Cyclic is the light one when a lot of clips need stretching.
+- Smooth costs more CPU than the other stretch models. Cyclic is the light one when a lot of clips need stretching.
 - Polyphonic pads with long releases add up fast: every ringing note is a voice, and Fidelity modes and
   saturation run on each one. Heavy inserts (Phaser) on top of that will overload. Resample if you can.
 - ChopShop's Beat and 1/4 to Bar chops stop at 128 slices, the Slicer's limit, so on a long song Beat covers the

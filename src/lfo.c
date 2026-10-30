@@ -110,8 +110,14 @@ struct lfo_state {
     uint32_t active;             /* bit pad * 2 + k: something is routed from it */
     uint32_t rng, scan, last;
     struct lfo l[16][2];
+    struct route {
+        uint16_t target;
+        uint8_t slot, src;       /* src 5 / 6 = routed from LFO 2 / 3, 0 = a free record */
+    } routes[16][8];             /* lfo_route: the pad's slots routed from an LFO */
+    uint16_t full;               /* bit pad: more routes than records, its flags no longer clear */
 };
-#define LFO_MAGIC 0x4c464f32u    /* "LFO2" */
+_Static_assert(sizeof(struct lfo_state) <= 0x1000, "master.c gives the LFOs 0x1000 bytes");
+#define LFO_MAGIC 0x4c464f73u    /* "LFOs" (3.5.m: slots added; was "LFO2") */
 #define DUCK_TRIGS (*(volatile uint16_t *)(0x2405ff70u + 14))   /* duck_state's spare bytes: a bit per pad, set at voice start */
 
 uint8_t *master_block(void);     /* master.c: the boot-time SDRAM block, or 0 */
@@ -190,6 +196,43 @@ void *lfo_source(const uint8_t *pad, int k)
     uint32_t id = *(const uint32_t *)(pad + 0x18), p = ((id >> 8) & 3) * 4 + (id & 3);
     s->active |= 1u << (p * 2 + (unsigned)k);
     return &s->l[p][k];
+}
+
+/* envmod.c: a mod slot (target, slot: stock keys a pad's entries by both) of this pad was set to `source`, any source,
+   "none" included. Once the last slot routed from an LFO is set to something else, that LFO stops being worked on;
+   before 3.5.m 'active' stayed set until a reboot (~0.3 % of the engine). Only a route recorded here can clear the flag:
+   one set by a voice (lfo_source) without a recorded route, or a pad with more than 8 routes, keeps it, as before. */
+void lfo_route(const uint8_t *pad, unsigned target, unsigned slot, unsigned source)
+{
+    struct lfo_state *s = lfo_state();
+    if (!s)
+        return;
+    uint32_t id = *(const uint32_t *)(pad + 0x18), p = ((id >> 8) & 3) * 4 + (id & 3);
+    struct route *r = s->routes[p], *hit = 0, *free_ = 0;
+    for (unsigned i = 0; i < 8; i++) {
+        if (r[i].src && r[i].target == target && r[i].slot == slot)
+            hit = &r[i];
+        else if (!r[i].src && !free_)
+            free_ = &r[i];
+    }
+    unsigned old = hit ? hit->src : 0, ours = source == 5 || source == 6;   /* envmod.c's SRC_LFO2 / SRC_LFO3 */
+    if (ours && !hit) {
+        if (!free_) {
+            s->full |= (uint16_t)(1u << p);
+            return;
+        }
+        hit = free_;
+        hit->target = (uint16_t)target;
+        hit->slot = (uint8_t)slot;
+    }
+    if (hit)
+        hit->src = (uint8_t)(ours ? source : 0);
+    if (!old || old == source || (s->full >> p & 1))
+        return;
+    for (unsigned i = 0; i < 8; i++)
+        if (r[i].src == old)
+            return;
+    s->active &= ~(1u << (p * 2 + (old - 5)));
 }
 
 /* duck_block calls this once per engine block. now: the engine's sample clock. */
