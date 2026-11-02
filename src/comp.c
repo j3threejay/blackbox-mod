@@ -72,6 +72,8 @@ void theme_register(void *table);
 void theme_defaults(void *store);
 void groove_register(void *table);
 void groove_defaults(void *store);
+void live_register(void *table);
+void live_defaults(void *store);
 void master_fx(float bpm, float *l, float *r, int n);
 int master_on(void);
 void lfo_tempo(float bpm);
@@ -103,6 +105,7 @@ void comp_register(void *table, int param, int type, const char *label, int min,
     preroll_register(table);
     groove_register(table);
     theme_register(table);
+    live_register(table);
     static const char *const clip_names[CLIP_TYPES] = {"Off", "Clean", "Diode"};
     static const char *const clip_names_none[CLIP_TYPES] = {"Off", "---", "---"};   /* clip.c is in bank 2 (3.3.y) */
     fw_register_list(table, PARAM_CLIPPER, "Clipper:", b2_present() ? clip_names : clip_names_none, CLIP_TYPES, "clipper");
@@ -121,6 +124,7 @@ void comp_defaults(void *store, int param, int value)
     preroll_defaults(store);
     groove_defaults(store);
     theme_defaults(store);
+    live_defaults(store);
     fw_store_add(store, PARAM_CLIPPER, CLIP_OFF);
     fw_store_add(store, PARAM_CLIP, 300);                    /* +5.4 dB into it once it is switched on */
     fw_store_add(store, PARAM_SHAPE, 800);                   /* mostly hard: rounded over the last fifth */

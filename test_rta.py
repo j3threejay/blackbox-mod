@@ -17,7 +17,7 @@ from unicorn import UC_HOOK_CODE
 os.environ.setdefault("BANK2_NEW", "1")
 from emu import Emu
 
-IMAGE = "out/solo+slice+duck+chord+cond+filter+cpu+od+comp+seqfix+fx2+munchi+master+fault+cave/BLACKBOX.bin"
+IMAGE = "out/solo+slice+duck+chord+cond+filter+cpu+od+comp+seqfix+fx2+munchi+master+fault+live+cave/BLACKBOX.bin"
 e = Emu(IMAGE, "out/cave.elf")
 for base, size in ((0x38800000, 0x1000), (0x58024000, 0x1000), (0xC0000000, 0x800000), (0x30000000, 0x10000)):
     e.uc.mem_map(base, size)

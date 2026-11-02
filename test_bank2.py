@@ -24,7 +24,7 @@ from unicorn import UC_HOOK_CODE
 
 from emu import DEPLOYED_BANK2, Emu
 
-IMAGE = "out/solo+slice+duck+chord+cond+filter+cpu+od+comp+seqfix+fx2+munchi+master+fault+cave/BLACKBOX.bin"
+IMAGE = "out/solo+slice+duck+chord+cond+filter+cpu+od+comp+seqfix+fx2+munchi+master+fault+live+cave/BLACKBOX.bin"
 B2, CAVE_LO, CAVE_HI, OLD_PIN = 0x08100000, 0x080F1E78, 0x08100000, 0x080F8B40
 
 fails = 0

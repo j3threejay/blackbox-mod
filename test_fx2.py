@@ -14,7 +14,7 @@ from emu import STACK, Emu
 
 import os
 os.environ.setdefault("BANK2_NEW", "1")                # Room is in the bank 2 this build links (3.3.v)
-e = Emu("out/solo+slice+duck+chord+cond+filter+cpu+od+comp+seqfix+fx2+munchi+master+fault+cave/BLACKBOX.bin", "out/cave.elf")
+e = Emu("out/solo+slice+duck+chord+cond+filter+cpu+od+comp+seqfix+fx2+munchi+master+fault+live+cave/BLACKBOX.bin", "out/cave.elf")
 e.uc.mem_map(0x38800000, 0x1000)
 e.uc.mem_map(0x58024000, 0x1000)
 STATE, POOL, OBJ, APPFX, ARR = 0x24040000, 0x24100000, 0x24041000, 0x24020088 + 0x2FC0, 0x24042000

@@ -22,7 +22,7 @@ from capstone import CS_ARCH_ARM, CS_MODE_THUMB, Cs
 
 from emu import Emu
 
-IMG = "out/solo+slice+duck+chord+cond+filter+cpu+od+comp+seqfix+fx2+munchi+master+fault+cave/BLACKBOX.bin"
+IMG = "out/solo+slice+duck+chord+cond+filter+cpu+od+comp+seqfix+fx2+munchi+master+fault+live+cave/BLACKBOX.bin"
 STOCK_IMG = "firmware/BLACKBOX-3.1.9.bin"
 B = 0x08040000
 fails = 0

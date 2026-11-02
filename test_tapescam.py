@@ -23,7 +23,7 @@ from unicorn import UC_HOOK_CODE
 os.environ.setdefault("BANK2_NEW", "1")
 from emu import STACK, Emu
 
-IMG = "out/solo+slice+duck+chord+cond+filter+cpu+od+comp+seqfix+fx2+munchi+master+fault+cave/BLACKBOX.bin"
+IMG = "out/solo+slice+duck+chord+cond+filter+cpu+od+comp+seqfix+fx2+munchi+master+fault+live+cave/BLACKBOX.bin"
 REF = os.path.join("host", "libtsref.dylib")
 if not os.path.exists(REF):
     os.system("sh host/build.sh")

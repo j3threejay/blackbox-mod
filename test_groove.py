@@ -18,7 +18,7 @@ from unicorn.arm_const import UC_ARM_REG_R0, UC_ARM_REG_SP
 
 from emu import Emu
 
-IMG = "out/solo+slice+duck+chord+cond+filter+cpu+od+comp+seqfix+fx2+munchi+master+fault+cave/BLACKBOX.bin"
+IMG = "out/solo+slice+duck+chord+cond+filter+cpu+od+comp+seqfix+fx2+munchi+master+fault+live+cave/BLACKBOX.bin"
 e = Emu(IMG, "out/cave.elf")
 fw = open(IMG, "rb").read()
 CLOCK, OUT, TICKS = 0x24060000, 0x24061000, 0x24061100

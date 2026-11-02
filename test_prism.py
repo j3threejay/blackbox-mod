@@ -14,7 +14,7 @@ from unicorn.arm_const import UC_ARM_REG_R0, UC_ARM_REG_R2, UC_ARM_REG_R3, UC_AR
 
 from emu import STACK, Emu
 
-e = Emu("out/solo+slice+duck+chord+cond+filter+cpu+od+comp+seqfix+fx2+munchi+master+fault+cave/BLACKBOX.bin", "out/cave.elf")
+e = Emu("out/solo+slice+duck+chord+cond+filter+cpu+od+comp+seqfix+fx2+munchi+master+fault+live+cave/BLACKBOX.bin", "out/cave.elf")
 e.uc.mem_map(0x38800000, 0x1000)
 e.uc.mem_map(0x58024000, 0x1000)
 e.uc.mem_map(0x50003000, 0x1000)                 # WWDG1, and the NVIC below: master_alloc now also runs
@@ -134,9 +134,9 @@ check("every xml name is unique", len({l[3] for l in lists} | {n[4] for n in num
 e.stub(0x08093EF6, lambda: added.append((e.arg(1), e.arg(2))))
 e.call("comp_defaults", 0x24072000, 0xB4, 1)
 d = dict(added)
-check("defaults: Sweet 30 %, Doubler 0, Tape 0, Cassette 25 %, Tilt flat, Time 1/8, Mix 100 %; 41 global entries added in all (TAPESCAM's eleven, Pre-roll, Groove, Theme, then the clipper's three)",
-      [d[i] for i in range(0x19D, 0x1A9)] == [1, 0, 1, 2, 300, 0, 0, 250, 500, 300, 3, 1000] and len(added) == 41 and len(d) == 41 and d.get(0x144) == 0 and d.get(0x145) == 0, added)
-check("stock has 41 global settings, ours add 40: 81 of the store's 96", 41 + len(added) - 1 == 81 and e.uc.mem_read(0x08094820, 2) == bytes.fromhex("6021"))
+check("defaults: Sweet 30 %, Doubler 0, Tape 0, Cassette 25 %, Tilt flat, Time 1/8, Mix 100 %; 42 global entries added in all (TAPESCAM's eleven, Pre-roll, Groove, Theme, Live Mode, then the clipper's three)",
+      [d[i] for i in range(0x19D, 0x1A9)] == [1, 0, 1, 2, 300, 0, 0, 250, 500, 300, 3, 1000] and len(added) == 42 and len(d) == 42 and d.get(0x144) == 0 and d.get(0x145) == 0, added)
+check("stock has 41 global settings, ours add 41: 82 of the store's 96", 41 + len(added) - 1 == 82 and e.uc.mem_read(0x08094820, 2) == bytes.fromhex("6021"))
 
 # --- the page
 LIST, CELL = 0x24074000, 0x24075000
