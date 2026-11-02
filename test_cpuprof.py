@@ -10,7 +10,7 @@ import sys
 
 from emu import Emu
 
-IMAGE = "out/solo+slice+duck+chord+cond+filter+cpu+od+comp+seqfix+fx2+munchi+master+fault+cave/BLACKBOX.bin"
+IMAGE = "out/solo+slice+duck+chord+cond+filter+cpu+od+comp+seqfix+fx2+munchi+master+fault+live+cave/BLACKBOX.bin"
 e = Emu(IMAGE, "out/cave.elf")
 if "prof_block_end" not in e.sym:
     print("PASS not a CPU_PROF build: nothing to check")

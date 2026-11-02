@@ -11,7 +11,7 @@ from unicorn.arm_const import UC_ARM_REG_R0, UC_ARM_REG_R1, UC_ARM_REG_R2, UC_AR
 
 from emu import BASE, Emu
 
-IMG = "out/solo+slice+duck+chord+cond+filter+cpu+od+comp+seqfix+fx2+munchi+master+fault+cave/BLACKBOX.bin"
+IMG = "out/solo+slice+duck+chord+cond+filter+cpu+od+comp+seqfix+fx2+munchi+master+fault+live+cave/BLACKBOX.bin"
 e = Emu(IMG, "out/cave.elf")
 img = open(IMG, "rb").read()
 stock = open("firmware/BLACKBOX-3.1.9.bin", "rb").read()

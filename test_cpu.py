@@ -10,7 +10,7 @@ import sys
 
 from emu import Emu
 
-e = Emu("out/solo+slice+duck+chord+cond+filter+cpu+od+comp+seqfix+fx2+munchi+master+fault+cave/BLACKBOX.bin", "out/cave.elf")
+e = Emu("out/solo+slice+duck+chord+cond+filter+cpu+od+comp+seqfix+fx2+munchi+master+fault+live+cave/BLACKBOX.bin", "out/cave.elf")
 V = e.cstr(e.sym["fw_version"])                 # our version text, in the cave (NOT stock's string: see below)
 e.uc.mem_map(0x38800000, 0x1000)                        # backup SRAM: master.c's page flags (which header title, if any)
 e.uc.mem_map(0x58024000, 0x1000)
@@ -179,7 +179,7 @@ check("...and loses it once bank 2 is paired", tools()[1] == "--%", tools())
 # Its last character is pooled as the standalone "9", and three tables point at it. Builds up to 3.2.b patched the
 # build letter over it, so the naming keyboard's 9 key typed that letter instead (a user reported "n" on the public
 # 3.1.n; 3.2.b typed "b"). The version is a string of our own in the cave now, and these guard the mistake.
-img = open("out/solo+slice+duck+chord+cond+filter+cpu+od+comp+seqfix+fx2+munchi+master+fault+cave/BLACKBOX.bin", "rb").read()
+img = open("out/solo+slice+duck+chord+cond+filter+cpu+od+comp+seqfix+fx2+munchi+master+fault+live+cave/BLACKBOX.bin", "rb").read()
 stock = open("firmware/BLACKBOX-3.1.9.bin", "rb").read()
 BASE = 0x08040000
 check("stock's \"3.1.9\" at 0x080cf290 is left exactly as it was",

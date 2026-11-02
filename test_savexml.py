@@ -24,7 +24,7 @@ from unicorn.arm_const import UC_ARM_REG_PC, UC_ARM_REG_LR, UC_ARM_REG_R0, UC_AR
 
 from emu import Emu, RET, STACK, ARGS, BASE
 
-IMAGE = "out/solo+slice+duck+chord+cond+filter+cpu+od+comp+seqfix+fx2+munchi+master+fault+cave/BLACKBOX.bin"
+IMAGE = "out/solo+slice+duck+chord+cond+filter+cpu+od+comp+seqfix+fx2+munchi+master+fault+live+cave/BLACKBOX.bin"
 PRESET = os.environ.get("SAVEXML_PRESET", "")       # a real preset.xml; unset = the synthetic projects only
 STOCK_WRITER = 0x08096754
 SITES = (0x08091968, 0x080921F2, 0x08092290, 0x08092750, 0x08092E14)

@@ -11,7 +11,7 @@ from unicorn.arm_const import UC_ARM_REG_S0
 
 from emu import STACK, Emu
 
-IMAGE = "out/solo+slice+duck+chord+cond+filter+cpu+od+comp+seqfix+fx2+munchi+master+fault+cave/BLACKBOX.bin"
+IMAGE = "out/solo+slice+duck+chord+cond+filter+cpu+od+comp+seqfix+fx2+munchi+master+fault+live+cave/BLACKBOX.bin"
 e = Emu(IMAGE, "out/cave.elf")
 if "sdiag_block" not in e.sym:
     print("PASS not a SLICE_DIAG build: nothing to check")

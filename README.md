@@ -104,6 +104,10 @@ From JOEBOX 1 (new since 3.1.n then):
   starts, so a resampled loop holds its own tails.
 - **Rotate a sequence**: in the piano roll's Event editor the top-right knob shifts the whole layer a step at a time.
 - **MUTE and SOLO on the Pads screen.**
+- **Live Mode**: TOOLS, MIDI, Live Mode (last row), Off / On. With it On, notes on the MIDI Seq channel play the pad
+  selected on the Pads screen, chromatically and with velocity, so a keyboard changes sound by selecting a pad instead
+  of going through SEQS. Other channels are untouched (drums on 10 keep working). Leave that pad's own MIDI In on None,
+  or it plays twice.
 - **USB on the power jack**: plugged into a computer the Blackbox is a class-compliant USB MIDI device and sends
   its three stereo outputs as six channels of 24-bit 48 kHz audio.
 - **Load readout on TOOLS**: average / peak, for example `62/75%`. Over about 100% peak the engine is out of time

@@ -17,7 +17,7 @@ from unicorn.arm_const import UC_ARM_REG_R0, UC_ARM_REG_S0, UC_ARM_REG_SP
 
 from emu import STACK, Emu
 
-IMAGE = "out/solo+slice+duck+chord+cond+filter+cpu+od+comp+seqfix+fx2+munchi+master+fault+cave/BLACKBOX.bin"
+IMAGE = "out/solo+slice+duck+chord+cond+filter+cpu+od+comp+seqfix+fx2+munchi+master+fault+live+cave/BLACKBOX.bin"
 PAD, SAMPLE, CLK, LAYER, ARR = 0x24060000, 0x24061000, 0x24061100, 0x24062000, 0x24063000
 APP_PADS = 0x24020088 + 0x1840
 STORE = APP_PADS + 1 * 0xF0 + 2 * 0x30            # pad id row 1, col 2

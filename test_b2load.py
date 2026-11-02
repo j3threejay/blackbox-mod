@@ -17,7 +17,7 @@ from unicorn.arm_const import UC_ARM_REG_LR, UC_ARM_REG_PC, UC_ARM_REG_R0, UC_AR
 
 from emu import BASE, DEPLOYED_BANK2, Emu
 
-IMAGE = "out/solo+slice+duck+chord+cond+filter+cpu+od+comp+seqfix+fx2+munchi+master+fault+cave/BLACKBOX.bin"
+IMAGE = "out/solo+slice+duck+chord+cond+filter+cpu+od+comp+seqfix+fx2+munchi+master+fault+live+cave/BLACKBOX.bin"
 B2, LIMIT, SECTOR = 0x08100000, 0xE0000, 0x20000      # LIMIT: the end of sector 6, all the loader may ever look at or program
 PAY_LIMIT, CLAIM_AT, CLAIM = 0xC0000, 0xC0000, 0x43324242   # sectors 0-5 hold the payload; the claim is sector 6's first word
 FOREIGN = 0x40

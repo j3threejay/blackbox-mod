@@ -11,7 +11,7 @@ import sys
 
 from emu import Emu
 
-IMG = "out/solo+slice+duck+chord+cond+filter+cpu+od+comp+seqfix+fx2+munchi+master+fault+cave/BLACKBOX.bin"
+IMG = "out/solo+slice+duck+chord+cond+filter+cpu+od+comp+seqfix+fx2+munchi+master+fault+live+cave/BLACKBOX.bin"
 VIEW, RECT = 0x24050000, 0x24058000
 fails = 0
 

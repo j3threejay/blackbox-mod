@@ -21,7 +21,7 @@ sys.path.insert(0, "host")
 import render_insert as host
 from emu import RET, STACK, Emu
 
-IMG = "out/solo+slice+duck+chord+cond+filter+cpu+od+comp+seqfix+fx2+munchi+master+fault+cave/BLACKBOX.bin"
+IMG = "out/solo+slice+duck+chord+cond+filter+cpu+od+comp+seqfix+fx2+munchi+master+fault+live+cave/BLACKBOX.bin"
 e = Emu(IMG, "out/cave.elf")
 img = open(IMG, "rb").read()
 BASE = 0x08040000

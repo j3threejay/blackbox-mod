@@ -17,7 +17,7 @@ sys.path.insert(0, "host")
 import render_clip as host
 from emu import Emu
 
-e = Emu("out/solo+slice+duck+chord+cond+filter+cpu+od+comp+seqfix+fx2+munchi+master+fault+cave/BLACKBOX.bin", "out/cave.elf")
+e = Emu("out/solo+slice+duck+chord+cond+filter+cpu+od+comp+seqfix+fx2+munchi+master+fault+live+cave/BLACKBOX.bin", "out/cave.elf")
 e.uc.mem_map(0x38800000, 0x1000)
 e.uc.mem_map(0x58024000, 0x1000)
 e.uc.mem_map(0xC0000000, 0x90000)
@@ -96,7 +96,7 @@ e.stub(0x08093EF6, lambda: added.append((e.arg(1), e.arg(2))))
 e.call("comp_defaults", 0x24072000, 0xB4, 1)
 check("defaults, after everything that was there: Clipper Off, Clip 30 %, Shape 80 %", added[-3:] == [(0x1B4, 0), (0x1B2, 300), (0x1B3, 800)], added[-3:])
 check("our global settings, with the three new ones: %d; stock has 41 of its own; the store holds 96" % (len(added) - 1), len(added) - 1 + 41 <= 96)
-img = open("out/solo+slice+duck+chord+cond+filter+cpu+od+comp+seqfix+fx2+munchi+master+fault+cave/BLACKBOX.bin", "rb").read()
+img = open("out/solo+slice+duck+chord+cond+filter+cpu+od+comp+seqfix+fx2+munchi+master+fault+live+cave/BLACKBOX.bin", "rb").read()
 page = struct.unpack_from("<4H", img, 0x080EED18 - 0x08040000)
 check("Tools: Headphone, Master FX, Compressor, Out 1: the two rows in signal order", page == (0xBA, 0x1DB, 0xB4, 0xBB), [hex(v) for v in page])
 

@@ -15,7 +15,7 @@ from unicorn.arm_const import UC_ARM_REG_R0
 
 from emu import Emu
 
-IMAGE = "out/solo+slice+duck+chord+cond+filter+cpu+od+comp+seqfix+fx2+munchi+master+fault+cave/BLACKBOX.bin"
+IMAGE = "out/solo+slice+duck+chord+cond+filter+cpu+od+comp+seqfix+fx2+munchi+master+fault+live+cave/BLACKBOX.bin"
 e = Emu(IMAGE, "out/cave.elf")
 fails = 0
 

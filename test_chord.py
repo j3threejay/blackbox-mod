@@ -12,7 +12,7 @@ from unicorn.arm_const import UC_ARM_REG_SP
 
 from emu import Emu
 
-e = Emu("out/solo+slice+duck+chord+cond+filter+cpu+od+comp+seqfix+fx2+munchi+master+fault+cave/BLACKBOX.bin", "out/cave.elf")
+e = Emu("out/solo+slice+duck+chord+cond+filter+cpu+od+comp+seqfix+fx2+munchi+master+fault+live+cave/BLACKBOX.bin", "out/cave.elf")
 
 VIEW, MSG, NAMES, STR = 0x24060000, 0x24069000, 0x2406A000, 0x2406B000
 SCALES, STATE = 0x24015A38, 0x2405FFA4

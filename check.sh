@@ -2,7 +2,7 @@
 # Build the cave, patch the image with every set, run every test suite; prints only failures and the image's sha.
 cd "$(dirname "$0")"
 ./build.sh || exit 1
-python3 patch.py solo slice duck chord cond filter cpu od comp seqfix fx2 munchi master fault cave | tail -1
+python3 patch.py solo slice duck chord cond filter cpu od comp seqfix fx2 munchi master fault live cave | tail -1
 PY=.venv/bin/python
 [ -x "$PY" ] || PY=python3               # needs unicorn, capstone and numpy
 [ -f host/libdsp.dylib ] || sh host/build.sh     # the Mac build of the DSP, which several suites hold the firmware's against
