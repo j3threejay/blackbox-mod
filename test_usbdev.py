@@ -286,6 +286,41 @@ else:
     control(struct.pack("<BBHHH", 0x40, 0x51, 0x0804, 0x2407, 0))
     r = control(struct.pack("<BBHHH", 0x40, 0x52, 0x5678, 0x1234, 0))
     check("debug poke: address then word, written once", r == b"" and e.r32(0x24070804) == 0x12345678 and e.r32(0x24070800) == 0x11223344, hex(e.r32(0x24070804)))
+    # bounded to whole memory regions. Backup SRAM is mapped here to exactly 0x38800fff: a read past it faults the
+    # emulator itself, as it bus-faults the chip
+    e.uc.mem_write(0x38800FD8, bytes(range(40)))
+    r = control(struct.pack("<BBHHH", 0xC0, 0x50, 0x0FD8, 0x3880, 64))
+    check("debug peek, bounded: a 64-byte peek at 0x38800fd8 comes back as the 40 bytes up to backup SRAM's end, nothing read past it",
+          r == bytes(range(40)), r)
+    e.uc.mem_map(0x50001000, 0x1000)
+    e.w32(0x500010AC, 0xC1234560)
+    e.w32(0x5000112C, 0xC2345670)
+    r1 = control(struct.pack("<BBHHH", 0xC0, 0x50, 0x10AC, 0x5000, 4))
+    r2 = control(struct.pack("<BBHHH", 0xC0, 0x50, 0x112C, 0x5000, 4))
+    r3 = control(struct.pack("<BBHHH", 0xC0, 0x50, 0x1140, 0x5000, 16))
+    r4 = control(struct.pack("<BBHHH", 0xC0, 0x50, 0x1148, 0x5000, 4))
+    check("  ...the LTDC's registers read (layer 1 and layer 2 CFBAR), a peek there stops at the block's end (8 of 16 "
+          "bytes from 0x50001140), and one past it stalls", r1 == struct.pack("<I", 0xC1234560) and
+          r2 == struct.pack("<I", 0xC2345670) and r3 == bytes(8) and r4 == "STALL", (r1, r2, r3, r4))
+    stall = [control(struct.pack("<BBHHH", 0xC0, 0x50, lo_, hi_, 4)) for lo_, hi_ in ((0x0000, 0x4004), (0x0801, 0x2407), (0x0000, 0x6000))]
+    check("  ...a peripheral not listed (the USB core), an unaligned word and an address in no memory stall",
+          stall == ["STALL"] * 3, stall)
+    before = (e.r32(0x08100000), e.r32(0x500010AC))
+    pk = []
+    for lo_, hi_ in ((0x0000, 0x0810), (0x10AC, 0x5000), (0x0802, 0x2407), (0x0010, 0xC010)):
+        control(struct.pack("<BBHHH", 0x40, 0x51, lo_, hi_, 0))
+        pk.append(control(struct.pack("<BBHHH", 0x40, 0x52, 0xBEEF, 0xDEAD, 0)))
+    check("  ...a poke to flash, to a register or unaligned stalls and writes nothing; to SDRAM it writes",
+          pk == ["STALL", "STALL", "STALL", b""] and (e.r32(0x08100000), e.r32(0x500010AC)) == before
+          and e.r32(0xC0100010) & 0xFFFFFFFF == 0xDEADBEEF, (pk, before, hex(e.r32(0xC0100010))))
+    # a reply the host gave up on still queued on endpoint 0 (enabled, its packet in the FIFO): the next setup
+    # disables the endpoint and flushes TX FIFO 0 before it answers, so the answer is its own
+    core.reg[DIEPCTL0] = core.get(DIEPCTL0) | (1 << 31)
+    core.log.clear()
+    r = control(struct.pack("<BBHHH", 0xC0, 0x50, 0x0800, 0x2407, 8))
+    check("debug build: with a stale reply queued on endpoint 0, a new peek disables it and flushes TX FIFO 0 (GRSTCTL 0x20), "
+          "then answers with its own bytes", (GRSTCTL, 0x20) in core.log and not core.get(DIEPCTL0) >> 31
+          and r == bytes.fromhex("44332211") + struct.pack("<I", 0x12345678), (core.log[:4], r))
 
 # --- MIDI from the computer: through stock's own USB event parser (real firmware code) into its "from USB" queue
 

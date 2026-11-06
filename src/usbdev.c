@@ -41,6 +41,9 @@
  *
  * DEBUG (3.1.N; compiled OUT of a public build, PUBLIC_BUILD - see release.h): two vendor requests on endpoint 0 let the computer read memory and
  * write a word (peek 0xc0 / 0x50, poke 0x40 / 0x51 + 0x52), so registers and counters can be read on the running unit.
+ * Both stay inside whole memory regions (MEM, below): a read that runs past the end of one bus-faults the chip. A dev
+ * build also flushes endpoint 0's IN FIFO at every SETUP, so a reply the computer timed out on is not sent later as
+ * the answer to the next request.
  */
 #include <stdint.h>
 
@@ -133,6 +136,7 @@ uint8_t *master_block(void);     /* master.c: the SDRAM block taken at boot, or 
 #define BULK_64   (64u | USBAEP | (2u << 18) | SD0PID)
 #define TXFIFO_1  (1u << 22)
 #define TXFFLSH_1 ((1u << 5) | (1u << 6))
+#define TXFFLSH_0 (1u << 5)
 #define TXFFLSH_2 ((1u << 5) | (2u << 6))
 #define IEPINT    (1u << 18)
 #define IISOIXFR  (1u << 20)
@@ -521,6 +525,59 @@ void usbaud_tap1(const float *src, int frames, uint32_t *dst, int zero, int stri
     ring_put(src, frames, 2u + right, (int)right);           /* stock's last conversion of the block */
 }
 
+#ifndef PUBLIC_BUILD
+/*
+ * DEBUG peek and poke, bounded to whole memory regions.
+ *
+ * Why: a read with nothing behind it bus-faults the chip, and the fault restarts the unit. A 64-byte peek at
+ * 0x38800fd8 read on into 0x38801000, one word past the end of backup SRAM, and did exactly that. So a peek reads
+ * aligned words inside one of the ranges below and stops at that range's end (a shorter reply, never a word past it);
+ * a peek that starts outside every range, or unaligned, is stalled. A poke writes one aligned word, and only in the
+ * ranges from MEM_RAMS on: the RAMs and SDRAM, never flash, never a peripheral register.
+ *
+ * What a peek may read, in this order (each RANGE(first byte, one past the last byte), both multiples of 4):
+ *   peek only:  the LTDC's registers (the screen's layers; a read changes none of them), RCC_RSR (the reset cause
+ *               fault.c records), flash (both banks)
+ *   peek, poke: DTCM, AXI SRAM, SRAM1-3, SRAM4, backup SRAM, SDRAM
+ *
+ * To widen it: add the block as one more RANGE in the "peek only" group, before flash, and add 1 to MEM_RAMS (it is
+ * the index of the first range a poke may write, so it must stay on DTCM: a poke must never reach a register). One
+ * range per block, never across a gap in the memory map: the gap faults like any other address with nothing behind
+ * it. Check that the block's clock is on (its RCC enable bit), or a read does not show its state. Then add a check
+ * to test_usbdev.py for the new range's last word and the word past it.
+ * Safe to read: configuration and status registers that a read leaves as they were: RCC, GPIO, the LTDC, timers,
+ * DMA stream set-up, the USB core's control, status and interrupt registers (GINTSTS, DIEPCTLx, DOEPCTLx, ...).
+ * NOT safe: anything a read changes. The USB core's GRXSTSP (+0x020) pops the receive status queue and its FIFO
+ * windows (+0x1000 on) pop endpoint data: usbdev's own interrupt then loses a packet, so never list the whole USB core.
+ * The data registers of SAI (the audio: a read pops a sample), SPI / I2S and USART (a read takes the data out of
+ * their receive FIFO), the SDMMC FIFO (card data), and any status register a read clears (read-to-clear). Read those
+ * from code on the unit, never from a peek.
+ * Each range is kept as its start and the offset of its last word (one subtract and one compare a range).
+ */
+#define RANGE(lo, hi) {lo, (hi) - (lo) - 4u}
+static const uint32_t MEM[][2] = {
+    RANGE(0x50001000u, 0x50001148u),     /* LTDC registers                 peek only */
+    RANGE(0x580244d0u, 0x580244d4u),     /* RCC_RSR                        peek only */
+    RANGE(0x08000000u, 0x08200000u),     /* flash, banks 1 and 2           peek only */
+    RANGE(0x20000000u, 0x20020000u),     /* DTCM                           peek, poke (MEM_RAMS) */
+    RANGE(0x24000000u, 0x24080000u),     /* AXI SRAM                       peek, poke */
+    RANGE(0x30000000u, 0x30048000u),     /* SRAM1-3                        peek, poke */
+    RANGE(0x38000000u, 0x38010000u),     /* SRAM4                          peek, poke */
+    RANGE(0x38800000u, 0x38801000u),     /* backup SRAM                    peek, poke */
+    RANGE(0xc0000000u, 0xc4000000u)};    /* SDRAM                          peek, poke */
+#define MEM_RAMS   3             /* the index of the first range a poke may write (DTCM): the peek-only ranges are above */
+
+static int inside(uint32_t a, unsigned from)
+{
+    if (a & 3)
+        return 0;
+    for (unsigned i = from; i < sizeof MEM / sizeof MEM[0]; i++)
+        if (a - MEM[i][0] <= MEM[i][1])          /* below the start, the difference wraps past every offset here */
+            return 1;
+    return 0;
+}
+#endif
+
 static void request(void)
 {
     uint8_t buf[64];
@@ -529,6 +586,17 @@ static void request(void)
     const uint8_t *from = 0;
 
     S->more_left = 0;
+#ifndef PUBLIC_BUILD
+    /* A reply the computer gave up waiting for (its timeout) can still be queued in endpoint 0's FIFO: this request's
+       reply would go in behind it, and every reply after that would be the previous request's. A setup starts afresh.
+       Dev builds only: it was seen with the peek, a vendor IN request, and a release build serves no vendor IN
+       request (it stalls them), so it is not needed there today. A standard request a host abandons could in theory
+       leave the same stale reply; if that is ever seen on a release build, move this block out of #ifndef
+       PUBLIC_BUILD. */
+    if (DIEPCTL0 & EPENA)
+        DIEPCTL0 |= EPDIS | SNAK;
+    flush(TXFFLSH_0);
+#endif
     if (type == 0x80 && req == 6) {                          /* GET_DESCRIPTOR */
         const char *text = 0;
         if (hi == 1)
@@ -560,20 +628,19 @@ static void request(void)
         }
 #ifndef PUBLIC_BUILD                                         /* not in a public build: see release.h */
     } else if (type == 0xc0 && req == 0x50) {                /* DEBUG peek: up to 64 bytes at wIndex:wValue, as words */
-        const volatile uint32_t *at = (const volatile uint32_t *)(lo | hi << 8 | (uint32_t)S->setup[4] << 16 | (uint32_t)S->setup[5] << 24);
-        for (len = 0; len < want && len < 64; len += 4) {
-            uint32_t w = *at++;
-            for (unsigned k = 0; k < 4; k++)
-                buf[len + k] = (uint8_t)(w >> (8 * k));
+        uint32_t a = lo | hi << 8 | (uint32_t)S->setup[4] << 16 | (uint32_t)S->setup[5] << 24;
+        for (len = 0; len < want && len < 64 && inside(a + len, 0); len += 4) {   /* stops at its memory's end */
+            uint32_t w = *(const volatile uint32_t *)(a + len);   /* one word read, as the registers want */
+            __builtin_memcpy(buf + len, &w, 4);                   /* its bytes in order, low first: one store */
         }
-        ok = 1;
+        ok = len > 0;                                        /* nothing readable there: stalled */
     } else if (type == 0x40 && (req == 0x51 || req == 0x52)) {   /* DEBUG poke: 0x51 sets the address, 0x52 writes a word */
         uint32_t v = lo | hi << 8 | (uint32_t)S->setup[4] << 16 | (uint32_t)S->setup[5] << 24;
         if (req == 0x51)
             S->poke_at = v;
-        else
+        else if ((ok = inside(S->poke_at, MEM_RAMS)))
             *(volatile uint32_t *)S->poke_at = v;
-        ok = 1;
+        ok |= req == 0x51;                                   /* a poke outside the RAMs: stalled, nothing written */
         data = 0;
 #endif
     } else if (type == 0x00 && req == 5) {                   /* SET_ADDRESS: the core applies it after the status */
