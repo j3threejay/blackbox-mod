@@ -169,10 +169,16 @@ static struct ins_bank *bank(void)
     return b;
 }
 
-static unsigned pad_index(const uint8_t *pad)
+/* 0 .. 15 for a pad, -1 for a cell off the 4 x 4 grid. The pads are row << 8 | col (FUN_080525f0); the same loop then
+   makes the browser's pre-listen voice a 17th class-B object, cell 0x401 (@0x08052b82), which & 3 read as pad 2:
+   pad 2's live input went into the pre-listen, and pad 2's insert ran on it with pad 2's state. */
+static int pad_index(const uint8_t *pad)
 {
-    uint32_t id = *(const uint32_t *)(pad + 0x18);       /* col | row << 8 */
-    return ((id >> 8) & 3) * 4 + (id & 3);
+    uint32_t id = *(const uint32_t *)(pad + 0x18);       /* bank << 16 | row << 8 | col; the bank is ignored */
+    uint32_t row = (id >> 8) & 0xff, col = id & 0xff;
+    if (row > 3 || col > 3)
+        return -1;
+    return (int)(row * 4 + col);
 }
 
 static float knob(const void *store, unsigned param)
@@ -259,9 +265,10 @@ int insert_on(const uint8_t *pad)
     if (meter_alive())
         return 1;
     struct ins_bank *b = bank();
-    if (!b)
+    int q = pad_index(pad);
+    if (!b || q < 0)
         return 0;
-    const struct ins_set *p = &b->set[pad_index(pad)];
+    const struct ins_set *p = &b->set[q];
     return p->type != INS_OFF || p->input != IN_OFF;         /* live input needs its own buffer too */
 }
 
@@ -269,7 +276,8 @@ int insert_on(const uint8_t *pad)
 int insert_live(const uint8_t *pad)
 {
     struct ins_bank *b = bank();
-    return b && b->set[pad_index(pad)].input != IN_OFF;
+    int q = pad_index(pad);
+    return b && q >= 0 && b->set[q].input != IN_OFF;
 }
 
 /* Could `n` floats really be at p? The on-chip RAMs and the SDRAM; anything else is not a channel. */
@@ -306,9 +314,9 @@ static void add_input(const struct ins_set *p, float *l, float *r, int n)
 void insert_process(const uint8_t *pad, void *buf)
 {
     struct ins_bank *b = bank();
-    if (!b || !buf)
+    int q = pad_index(pad);
+    if (!b || !buf || q < 0)
         return;
-    unsigned q = pad_index(pad);
     const struct ins_set *p = &b->set[q];
     if (p->type == INS_OFF && p->input == IN_OFF)
         return;

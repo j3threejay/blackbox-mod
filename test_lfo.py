@@ -124,6 +124,27 @@ voice_start("duck_voice_start_b", 0x08065908, 0)
 check("voice start on pad 1 (class B thunk): bit 0 added, and the duck trigger as before", e.r16(STATE + 14) == (1 << 9) | 1 and e.r8(STATE + 8) == 1, hex(e.r16(STATE + 14)))
 voice_start("duck_voice_start_a", 0x08058548, 0x10303)
 check("bank bits are ignored: row 3, col 3 = pad 16", e.r16(STATE + 14) == (1 << 9) | 1 | (1 << 15), hex(e.r16(STATE + 14)))
+# A cell that is no pad sets no bit. The one that starts voices here is the browser's pre-listen: stock's 17th class-B
+# object, cell 0x401 (row 4, col 1; FUN_080525f0 @0x08052b82, after the sixteen pads it numbers row << 8 | col in bank
+# 0). The & 3 read it as pad 2, so every pre-listen retriggered pad 2's LFO 2 / 3.
+for sym, orig in (("duck_voice_start_a", 0x08058548), ("duck_voice_start_b", 0x08065908)):
+    t = sym[-1].upper()
+    e.uc.mem_write(STATE, bytes(64))
+    s = voice_start(sym, orig, 0x0401)
+    check(f"thunk {t}, the pre-listen voice (cell 0x401): no bit in the trigger mask, no duck trigger; r0-r3, stack and s0 passed on",
+          e.r16(STATE + 14) == 0 and e.r8(STATE + 8) == 0 and s["r"] == [PAD, 0xA1, 0xA2, 0xA3] and s["sp"] == 0x2407F000
+          and s["stack"] == 0xCAFE and s["s0"] == 0.625, (hex(e.r16(STATE + 14)), e.r8(STATE + 8), s))
+    for cid in (0x0005, 0x0501, 0x10401):
+        voice_start(sym, orig, cid)
+    check(f"thunk {t}: no bit either for col 5 (0x005), row 5 (0x501), or row 4 in another bank (0x10401)",
+          e.r16(STATE + 14) == 0 and e.r8(STATE + 8) == 0, hex(e.r16(STATE + 14)))
+    e.uc.mem_write(STATE, bytes(64))
+    s = voice_start(sym, orig, 0x0001)
+    check(f"thunk {t}: pad 2 itself (cell 0x001) still sets bit 1, arguments passed on",
+          e.r16(STATE + 14) == 1 << 1 and e.r8(STATE + 8) == 0 and s["r"] == [PAD, 0xA1, 0xA2, 0xA3] and s["stack"] == 0xCAFE, hex(e.r16(STATE + 14)))
+    voice_start(sym, orig, 0)
+    check(f"thunk {t}: pad 1 (cell 0) still sets bit 0 and the duck trigger", e.r16(STATE + 14) == 0b11 and e.r8(STATE + 8) == 1,
+          (hex(e.r16(STATE + 14)), e.r8(STATE + 8)))
 
 # ---- no memory: everything stays out of the way
 e.uc.mem_write(0x38800F70, bytes(8))

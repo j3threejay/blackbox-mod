@@ -391,6 +391,42 @@ memory()
 for q in range(16):
     store(q)
 
+# ---------------------------------------------------------------- the browser's pre-listen voice is no pad
+# Stock gives the browser's pre-listen a 17th class-B object, cell 0x401 (row 4, col 1; FUN_080525f0 @0x08052b82). The
+# & 3 read it as pad 2 (row 0, col 1): pad 2's live input went into the pre-listen, and pad 2's insert ran on it with
+# pad 2's own state.
+store(1, ins=1, ph=0, rate=400, depth=900, manual=500, fb=500, spread=0, mix=500, live=3)   # pad 2: Phaser, In 1+2
+scan()
+SL = 0x24077000                                                # the output bus: anything but the pad's own buffer
+
+
+def cell(cid):
+    e.uc.mem_write(PAD, bytes(0xC00))
+    e.w32(PAD + 0x18, cid)
+    return PAD
+
+
+check("the pre-listen voice (cell 0x401), pad 2 with Insert and Input on: no mix buffer, not kept rendering",
+      enter("insert_buf_b", cell(0x401)) == (0, True) and enter("insert_live_b", cell(0x401)) == (0, True))
+check("...nor any other cell off the grid: col 5 (0x005), row 5 (0x501), on both pad classes",
+      all(enter(t, cell(c)) == (0, True) for c in (0x005, 0x501)
+          for t in ("insert_buf_a", "insert_buf_b", "insert_live_a", "insert_live_b")))
+held = bytes(e.uc.mem_read(BANK, 0x22000))
+buffer(voices, voices)
+enter("insert_run_b", cell(0x401), {0x14: BUF}, {UC_ARM_REG_R10: SL})
+l, r = audio()
+check("...and its mix comes back untouched: no input added, no phaser, pad 2's effect state left alone",
+      np.array_equal(l, voices) and np.array_equal(r, voices) and bytes(e.uc.mem_read(BANK, 0x22000)) == held)
+check("pad 2 itself (cell 0x001) still gets its own buffer and renders with no voice sounding",
+      enter("insert_buf_b", cell(0x001)) == (1, True) and enter("insert_live_b", cell(0x001)) == (1, True))
+buffer(zeros, zeros)
+enter("insert_run_b", cell(0x001), {0x14: BUF}, {UC_ARM_REG_R10: SL})
+l, _ = audio()
+check("...and its mix gets the input, through the phaser", np.abs(l).max() > 1e-4 and not np.allclose(l, inl, atol=1e-4))
+memory()
+for q in range(16):
+    store(q)
+
 # ---------------------------------------------------------------- the firmware's effects = the Mac build's, every model
 dll = host.lib()
 t = np.arange(N * 40)
