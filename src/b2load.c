@@ -289,6 +289,7 @@ int b2_program(void)
  * scan cannot even read, every one of those boots ends in a fault. Twice, then leave it: effects off, "!" on
  * Tools. A different payload starts its own count, so a new file or a new build always gets its tries.
  */
+#if B2LOAD_WRITE                 /* the tries and the restart are the writer's: B2LOAD_WRITE=0 builds without them */
 static uint32_t tries_key(void)
 {
     return (uint32_t)B2_ID ^ b2_expect_sum ^ 0x54524932u;
@@ -321,6 +322,7 @@ static void restart(void)
     for (;;)
         ;
 }
+#endif
 
 /*
  * b2load_thunk.S calls this from the disk task, in front of every file command step. It does its work once a
